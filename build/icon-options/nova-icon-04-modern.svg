@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Nova icon concept 04 - Modern</title>
+  <metadata>Based on Tabler Database: https://api.iconify.design/tabler:database.svg</metadata>
+  <defs>
+    <linearGradient id="bg" x1="108" y1="92" x2="924" y2="934" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAF9F5"/>
+      <stop offset="1" stop-color="#E8E0D2"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="270" y1="197" x2="805" y2="768" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#397A50"/>
+      <stop offset=".46" stop-color="#252523"/>
+      <stop offset="1" stop-color="#5DB8A6"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="277" y1="230" x2="765" y2="748" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAF9F5" stop-opacity=".62"/>
+      <stop offset=".55" stop-color="#397A50" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#5DB8A6" stop-opacity=".16"/>
+    </linearGradient>
+    <linearGradient id="ai" x1="652" y1="620" x2="844" y2="812" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2C17A"/>
+      <stop offset="1" stop-color="#E8A55A"/>
+    </linearGradient>
+    <filter id="glassShadow" x="-30%" y="-30%" width="170%" height="180%">
+      <feDropShadow dx="0" dy="28" stdDeviation="30" flood-color="#6C6A64" flood-opacity=".3"/>
+    </filter>
+    <filter id="aiGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="15" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="url(#bg)" stroke="#D9D0C3" stroke-width="10"/>
+  <path d="M175 820L846 149" stroke="#397A50" stroke-opacity=".055" stroke-width="84"/>
+  <g filter="url(#glassShadow)">
+    <path d="M271 291c0-62 108-112 241-112s241 50 241 112v356c0 62-108 112-241 112s-241-50-241-112V291Z" fill="url(#glass)" stroke="url(#stroke)" stroke-width="35"/>
+    <ellipse cx="512" cy="291" rx="241" ry="112" fill="#397A50" fill-opacity=".12" stroke="url(#stroke)" stroke-width="35"/>
+    <path d="M271 409c0 62 108 112 241 112s241-50 241-112" fill="none" stroke="url(#stroke)" stroke-width="35"/>
+    <path d="M271 528c0 62 108 112 241 112s241-50 241-112" fill="none" stroke="url(#stroke)" stroke-width="35"/>
+    <ellipse cx="512" cy="291" rx="172" ry="68" fill="none" stroke="#252523" stroke-opacity=".34" stroke-width="10" stroke-dasharray="20 22"/>
+    <circle cx="512" cy="291" r="18" fill="#252523"/>
+    <circle cx="388" cy="271" r="10" fill="#E8A55A"/>
+    <circle cx="633" cy="316" r="10" fill="#5DB8A6"/>
+  </g>
+  <g filter="url(#aiGlow)">
+    <path d="M748 620c11 55 40 84 95 95c-55 11-84 40-95 95c-11-55-40-84-95-95c55-11 84-40 95-95Z" fill="url(#ai)" stroke="#252523" stroke-width="13" stroke-linejoin="round"/>
+  </g>
+  <circle cx="832" cy="630" r="12" fill="#5DB8A6"/>
+  <circle cx="650" cy="816" r="10" fill="#5DB872"/>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Nova icon concept 03 - 3D</title>
+  <metadata>Based on Tabler Database: https://api.iconify.design/tabler:database.svg</metadata>
+  <defs>
+    <radialGradient id="bg" cx="0" cy="0" r="1" gradientTransform="translate(316 236) rotate(47) scale(880)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#334B73"/>
+      <stop offset=".55" stop-color="#15243E"/>
+      <stop offset="1" stop-color="#080E19"/>
+    </radialGradient>
+    <linearGradient id="front" x1="255" y1="282" x2="727" y2="742" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EDF3FF"/>
+      <stop offset=".36" stop-color="#AABDDD"/>
+      <stop offset=".72" stop-color="#7187AC"/>
+      <stop offset="1" stop-color="#465B7D"/>
+    </linearGradient>
+    <radialGradient id="top" cx="0" cy="0" r="1" gradientTransform="translate(398 235) rotate(18) scale(334 139)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset=".45" stop-color="#BBD0EE"/>
+      <stop offset="1" stop-color="#657A9E"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="244" y1="0" x2="720" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5E7396"/>
+      <stop offset=".48" stop-color="#E5EEFC"/>
+      <stop offset="1" stop-color="#3D5274"/>
+    </linearGradient>
+    <linearGradient id="ai" x1="678" y1="636" x2="887" y2="855" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B7FFEA"/>
+      <stop offset=".5" stop-color="#44D8AC"/>
+      <stop offset="1" stop-color="#12A57E"/>
+    </linearGradient>
+    <filter id="objectShadow" x="-30%" y="-20%" width="180%" height="190%">
+      <feDropShadow dx="22" dy="38" stdDeviation="32" flood-color="#000711" flood-opacity=".58"/>
+    </filter>
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="url(#bg)"/>
+  <ellipse cx="500" cy="784" rx="288" ry="86" fill="#02050A" opacity=".42"/>
+  <g filter="url(#objectShadow)" transform="rotate(-4 480 490)">
+    <path d="M239 299c0-64 108-116 241-116s241 52 241 116v354c0 64-108 116-241 116s-241-52-241-116V299Z" fill="url(#front)" stroke="#172945" stroke-width="24"/>
+    <ellipse cx="480" cy="299" rx="241" ry="116" fill="url(#top)" stroke="#172945" stroke-width="24"/>
+    <path d="M239 411c0 64 108 116 241 116s241-52 241-116" fill="none" stroke="url(#rim)" stroke-width="38"/>
+    <path d="M239 531c0 64 108 116 241 116s241-52 241-116" fill="none" stroke="url(#rim)" stroke-width="38"/>
+    <path d="M286 282c34-38 109-66 194-66c82 0 154 25 190 61" fill="none" stroke="#FFFFFF" stroke-width="17" stroke-linecap="round" opacity=".68"/>
+    <path d="M291 422v218c0 38 42 70 98 84" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" opacity=".2"/>
+  </g>
+  <g filter="url(#glow)">
+    <path d="M782 621c13 67 49 103 116 116c-67 13-103 49-116 116c-13-67-49-103-116-116c67-13 103-49 116-116Z" fill="url(#ai)" stroke="#E8FFF8" stroke-width="10" stroke-linejoin="round"/>
+    <circle cx="881" cy="649" r="16" fill="#FF8B73"/>
+  </g>
+</svg>

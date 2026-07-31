@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Nova icon concept 02 - Layered</title>
+  <metadata>Based on Tabler Database: https://api.iconify.design/tabler:database.svg</metadata>
+  <defs>
+    <linearGradient id="bg" x1="104" y1="88" x2="920" y2="936" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FAFCFF"/>
+      <stop offset="1" stop-color="#DCE5F4"/>
+    </linearGradient>
+    <linearGradient id="body" x1="238" y1="260" x2="696" y2="742" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset=".55" stop-color="#ECF2FB"/>
+      <stop offset="1" stop-color="#CAD7EA"/>
+    </linearGradient>
+    <linearGradient id="top" x1="260" y1="206" x2="704" y2="350" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7B8CFF"/>
+      <stop offset="1" stop-color="#3D54D8"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="684" y1="630" x2="895" y2="864" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B2C50"/>
+      <stop offset="1" stop-color="#0A1223"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="170%" height="180%">
+      <feDropShadow dx="0" dy="30" stdDeviation="28" flood-color="#203354" flood-opacity=".24"/>
+    </filter>
+    <filter id="badgeShadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#17233B" flood-opacity=".3"/>
+    </filter>
+  </defs>
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <path d="M247 301c0-60 103-108 230-108s230 48 230 108v350c0 60-103 108-230 108s-230-48-230-108V301Z" fill="#95A6C5" transform="translate(26 30)" opacity=".72"/>
+    <path d="M247 301c0-60 103-108 230-108s230 48 230 108v350c0 60-103 108-230 108s-230-48-230-108V301Z" fill="url(#body)" stroke="#22385F" stroke-width="28" stroke-linejoin="round"/>
+    <ellipse cx="477" cy="301" rx="230" ry="108" fill="url(#top)" stroke="#22385F" stroke-width="28"/>
+    <path d="M247 418c0 60 103 108 230 108s230-48 230-108" fill="none" stroke="#22385F" stroke-width="28" stroke-linecap="round"/>
+    <path d="M247 534c0 60 103 108 230 108s230-48 230-108" fill="none" stroke="#22385F" stroke-width="28" stroke-linecap="round"/>
+    <path d="M305 277c39-31 104-51 172-51c67 0 128 18 168 47" fill="none" stroke="#C9D0FF" stroke-width="15" stroke-linecap="round" opacity=".72"/>
+  </g>
+  <g filter="url(#badgeShadow)">
+    <circle cx="789" cy="744" r="124" fill="url(#badge)" stroke="#FFFFFF" stroke-width="18"/>
+    <path d="M789 666c10 46 34 70 80 80c-46 10-70 34-80 80c-10-46-34-70-80-80c46-10 70-34 80-80Z" fill="#58E3B8"/>
+    <circle cx="850" cy="681" r="13" fill="#FF745C"/>
+  </g>
+</svg>

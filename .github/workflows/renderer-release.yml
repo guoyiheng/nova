@@ -1,0 +1,68 @@
+name: Release Nova UI
+
+on:
+  push:
+    tags:
+      - 'ui-v*.*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish UI update
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.cache/npm
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/npm
+          key: nova-ui-node22-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            nova-ui-node22-${{ runner.os }}-
+            nova-release-node22-${{ runner.os }}-linux-x64-
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build:renderer
+      - name: Build signed UI update
+        id: update
+        shell: bash
+        env:
+          NOVA_RENDERER_UPDATE_PRIVATE_KEY: ${{ secrets.NOVA_RENDERER_UPDATE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#ui-v}"
+          mkdir -p release
+          (cd dist && zip -q -r "../release/Nova-renderer-${version}.zip" .)
+          RENDERER_VERSION="$version" RENDERER_TAG="$GITHUB_REF_NAME" node scripts/create-renderer-update-manifest.mjs
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          base_tag="$(git tag --list 'ui-v*' --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | sed -n '1p')"
+          if [ -z "$base_tag" ]; then
+            base_tag="$(git tag --list 'v*' --sort=-version:refname | sed -n '1p')"
+          fi
+          git log --no-merges --pretty='- %s' "${base_tag:+${base_tag}..}HEAD" -- src index.html \
+            | sed -n '1,3p' > release/notes.md
+          if [ ! -s release/notes.md ]; then
+            echo '- 界面体验优化' > release/notes.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Nova UI v${{ steps.update.outputs.version }}
+          prerelease: true
+          body_path: release/notes.md
+          files: |
+            release/Nova-renderer-${{ steps.update.outputs.version }}.zip
+            release/Nova-renderer-${{ steps.update.outputs.version }}.json

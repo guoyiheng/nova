@@ -1,0 +1,110 @@
+{
+  "name": "nova",
+  "version": "0.1.5",
+  "private": true,
+  "description": "Nova - local-first AI database intelligence",
+  "author": "Nova",
+  "repository": "https://github.com/guoyiheng/nova",
+  "main": "dist-electron/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch --preserveWatchOutput\" \"wait-on tcp:5173 dist-electron/main/index.js && electron .\"",
+    "build": "tsc -p tsconfig.electron.json && vite build",
+    "build:renderer": "vite build",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "vitest run",
+    "start": "electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@bytebase/dbhub": "0.24.0",
+    "@fontsource-variable/manrope": "^5.2.8",
+    "@fontsource-variable/newsreader": "^5.3.0",
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "extract-zip": "^2.0.1",
+    "lucide-react": "^0.468.0",
+    "openai": "^5.12.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.1.2",
+    "remark-gfm": "^4.0.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.0",
+    "electron": "^37.2.5",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.6",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "cn.kuchacha.nova",
+    "productName": "Nova",
+    "afterPack": "build/after-pack.cjs",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "artifactName": "Nova-${version}-${os}-${arch}.${ext}",
+    "icon": "build/icon.icns",
+    "asarUnpack": [
+      "node_modules/ssh2/**",
+      "node_modules/cpu-features/**",
+      "node_modules/asn1/**",
+      "node_modules/bcrypt-pbkdf/**",
+      "node_modules/tweetnacl/**",
+      "node_modules/safer-buffer/**"
+    ],
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "node_modules/**",
+      "renderer-update.json",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 180,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 270,
+          "y": 310,
+          "type": "file",
+          "path": "build/install-macos.command",
+          "name": "安装 Nova.command"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 400
+      }
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Development"
+    }
+  }
+}

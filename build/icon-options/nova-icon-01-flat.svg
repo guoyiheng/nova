@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Nova icon concept 01 - Flat</title>
+  <metadata>Based on Tabler Database: https://api.iconify.design/tabler:database.svg</metadata>
+  <defs>
+    <linearGradient id="bg" x1="128" y1="96" x2="880" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#13233F"/>
+      <stop offset="1" stop-color="#09111F"/>
+    </linearGradient>
+  </defs>
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="url(#bg)"/>
+  <path d="M218 272a256 96 0 1 0 512 0a256 96 0 1 0-512 0" fill="#38D6AC" fill-opacity=".2" stroke="#F8FAFC" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M218 272v192a256 96 0 0 0 512 0V272" fill="none" stroke="#F8FAFC" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M218 464v192a256 96 0 0 0 512 0V464" fill="none" stroke="#F8FAFC" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M786 623c13 68 49 104 117 117c-68 13-104 49-117 117c-13-68-49-104-117-117c68-13 104-49 117-117Z" fill="#FF6B57"/>
+  <circle cx="886" cy="636" r="15" fill="#FFD34E"/>
+  <circle cx="681" cy="843" r="12" fill="#38D6AC"/>
+</svg>

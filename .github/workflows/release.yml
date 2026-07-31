@@ -1,0 +1,103 @@
+name: Release Nova
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Intel
+            os: macos-14
+            cache-id: macos-x64
+            command: npx electron-builder --mac dmg zip --x64 --publish never
+          - label: macOS Apple Silicon
+            os: macos-14
+            cache-id: macos-arm64
+            command: npx electron-builder --mac dmg zip --arm64 --publish never
+          - label: Windows x64
+            os: windows-latest
+            cache-id: windows-x64
+            command: npx electron-builder --win nsis --x64 --publish never
+          - label: Linux x64
+            os: ubuntu-latest
+            cache-id: linux-x64
+            command: npx electron-builder --linux AppImage --x64 --publish never
+    runs-on: ${{ matrix.os }}
+    env:
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.cache/npm
+      ELECTRON_CACHE: ${{ github.workspace }}/../.cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/../.cache/electron-builder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore release caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.cache/npm
+            ${{ github.workspace }}/../.cache/electron
+            ${{ github.workspace }}/../.cache/electron-builder
+          key: nova-release-v2-node22-${{ runner.os }}-${{ matrix.cache-id }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            nova-release-v2-node22-${{ runner.os }}-${{ matrix.cache-id }}-
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Verify tag and package version
+        run: node -e "if ('v' + require('./package.json').version !== process.env.GITHUB_REF_NAME) process.exit(1)"
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Build installer
+        run: ${{ matrix.command }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nova-${{ matrix.label }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes_file" ]; then
+            cp "$notes_file" release-notes.md
+          else
+            previous_tag="$(git tag --list 'v*' --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | sed -n '1p')"
+            git log --no-merges --pretty='%s' "${previous_tag:+${previous_tag}..}HEAD" \
+              | sed -nE 's/^(feat|fix|perf)(\([^)]*\))?!?:[[:space:]]*/- /p' \
+              | sed -n '1,3p' > release-notes.md
+            if [ ! -s release-notes.md ]; then
+              echo '- 稳定性与使用体验优化' > release-notes.md
+            fi
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Nova ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: release-assets/*
