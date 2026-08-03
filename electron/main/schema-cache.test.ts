@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractSchemaCacheStructure, inspectSchemaCache, missingSchemaCacheInfo } from './schema-cache.js'
+import { extractSchemaCacheStructure, inspectSchemaCache, isSchemaCacheStale, missingSchemaCacheInfo, resolveSchemaSnapshot, SCHEMA_CACHE_MAX_AGE_MS } from './schema-cache.js'
 
 describe('schema cache inspection', () => {
   it('reports a missing cache with zero counts', () => {
@@ -54,5 +54,24 @@ describe('schema cache inspection', () => {
     ])
     expect(JSON.stringify(structure)).not.toContain('row_count')
     expect(JSON.stringify(structure)).not.toContain('gen_random_uuid')
+  })
+
+  it('marks caches older than the refresh interval as stale', () => {
+    const refreshedAt = '2026-08-03T10:00:00.000Z'
+    const refreshedTime = Date.parse(refreshedAt)
+    expect(isSchemaCacheStale(refreshedAt, refreshedTime + SCHEMA_CACHE_MAX_AGE_MS - 1)).toBe(false)
+    expect(inspectSchemaCache('source-1', '{"schemas":{}}', refreshedAt, refreshedTime + SCHEMA_CACHE_MAX_AGE_MS).state).toBe('stale')
+  })
+
+  it('keeps a stale snapshot when automatic refresh fails', async () => {
+    const resolved = await resolveSchemaSnapshot({
+      cachedSchema: '{"version":1}',
+      needsRefresh: true,
+      loadFresh: async () => { throw new Error('connection failed') },
+      saveFresh: () => undefined,
+    })
+
+    expect(resolved.source).toBe('stale-fallback')
+    expect(resolved.schemaJson).toBe('{"version":1}')
   })
 })

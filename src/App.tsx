@@ -2156,7 +2156,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
                 <div>
                   <span>结构缓存</span>
                   <strong id="schema-cache-heading">
-                    {loadingSchemaCache ? '正在读取' : schemaCache?.state === 'ready' ? '状态正常' : schemaCache?.state === 'partial' ? '部分对象不可用' : '尚未创建'}
+                    {loadingSchemaCache ? '正在读取' : schemaCache?.state === 'ready' ? '状态正常' : schemaCache?.state === 'partial' ? '部分对象不可用' : schemaCache?.state === 'stale' ? '需要更新' : '尚未创建'}
                   </strong>
                 </div>
                 <div className="schema-cache-actions">
@@ -2166,7 +2166,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
                       {showSchemaStructure ? '收起结构' : '查看结构'}
                     </button>
                   )}
-                  <button className="secondary-button compact" type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache || saving}>
+                  <button className={`${schemaCache?.state === 'stale' ? 'primary-button' : 'secondary-button'} compact`} type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache || saving}>
                     {rebuildingSchemaCache ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
                     {rebuildingSchemaCache ? '正在重建' : '重建缓存'}
                   </button>

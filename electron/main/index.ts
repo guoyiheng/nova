@@ -10,7 +10,7 @@ import { Storage, uniqueImportedName } from './storage.js'
 import { fetchModelIds } from './models.js'
 import { checkAppUpdate, downloadAppUpdate, openDownloadedUpdate } from './updater.js'
 import { RendererUpdater } from './renderer-updater.js'
-import { extractSchemaCacheStructure, inspectSchemaCache, missingSchemaCacheInfo } from './schema-cache.js'
+import { extractSchemaCacheStructure, inspectSchemaCache, isSchemaCacheStale, missingSchemaCacheInfo, resolveSchemaSnapshot } from './schema-cache.js'
 import type { AgentProgressEvent, AgentStage, DataSourceInput, QueryTable } from '../shared/types.js'
 
 let mainWindow: BrowserWindow | null = null
@@ -320,6 +320,7 @@ function registerIpc() {
       if (!source) throw new Error('当前数据源不存在，请重新选择。')
       if (!channel) throw new Error('模型提供商不存在，请重新选择。')
       const apiKey = storage.getModelChannelApiKey(channel.id)
+      const schemaCache = storage.getSchemaCacheRecord(source.id)
       const result = await runAgent({
         queryId: input.queryId,
         question: input.question,
@@ -328,7 +329,8 @@ function registerIpc() {
         apiKey,
         baseUrl: channel.baseUrl,
         model: input.model,
-        schemaCache: storage.getSchemaCache(source.id),
+        schemaCache: schemaCache?.schemaJson ?? null,
+        schemaCacheNeedsRefresh: schemaCache ? isSchemaCacheStale(schemaCache.refreshedAt) : false,
         onSchemaLoaded: (schemaJson) => storage.saveSchemaCache(source.id, schemaJson),
         onSchemaChanged: () => storage.clearSchemaCache(source.id),
         onProgress: (progress) => {
@@ -388,15 +390,23 @@ function registerIpc() {
         throw new Error('DBHub 未提供 SQL 执行工具。')
       }
       currentStep.success(`${connectionDetail}\n状态：连接成功，已确认 SQL 执行能力`)
-      const cachedSchema = storage.getSchemaCache(source.id)
+      const cachedSchema = storage.getSchemaCacheRecord(source.id)
+      const schemaCacheNeedsRefresh = cachedSchema ? isSchemaCacheStale(cachedSchema.refreshedAt) : false
       currentStep = progress(
         'schema',
-        cachedSchema ? '读取元数据缓存' : '缓存数据库结构',
-        cachedSchema ? '正在读取本地数据库结构缓存' : '正在从数据库读取 Schema、表、视图、字段、函数和索引',
+        schemaCacheNeedsRefresh ? '更新元数据缓存' : cachedSchema ? '读取元数据缓存' : '缓存数据库结构',
+        schemaCacheNeedsRefresh ? '缓存已超过 24 小时，正在从数据库重新读取结构' : cachedSchema ? '正在读取本地数据库结构缓存' : '正在从数据库读取 Schema、表、视图、字段、函数和索引',
       )
-      const schemaJson = cachedSchema ?? await loadSchemaSnapshot(session)
-      if (!cachedSchema) storage.saveSchemaCache(source.id, schemaJson)
-      currentStep.success(describeSchema(schemaJson, Boolean(cachedSchema)))
+      const resolvedSchema = await resolveSchemaSnapshot({
+        cachedSchema: cachedSchema?.schemaJson ?? null,
+        needsRefresh: schemaCacheNeedsRefresh,
+        loadFresh: () => loadSchemaSnapshot(session),
+        saveFresh: (schemaJson) => storage.saveSchemaCache(source.id, schemaJson),
+      })
+      currentStep.success([
+        describeSchema(resolvedSchema.schemaJson, resolvedSchema.source !== 'fresh'),
+        ...(resolvedSchema.source === 'stale-fallback' ? ['缓存更新失败，本次继续使用已有结构'] : []),
+      ].join('\n'))
       currentStep = progress('querying', '执行 SQL', `准备执行：\n${input.sql}`)
       const table = await executeSql(session, input.sql)
       if (changesSchemaSql(input.sql)) storage.clearSchemaCache(source.id)

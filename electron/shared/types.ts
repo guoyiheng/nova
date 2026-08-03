@@ -57,7 +57,7 @@ export interface SchemaCacheError {
 
 export interface SchemaCacheInfo {
   dataSourceId: string
-  state: 'missing' | 'ready' | 'partial'
+  state: 'missing' | 'ready' | 'partial' | 'stale'
   refreshedAt: string | null
   capturedAt: string | null
   sizeBytes: number

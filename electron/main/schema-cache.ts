@@ -1,6 +1,30 @@
 import type { SchemaCacheError, SchemaCacheInfo, SchemaCacheStructure, SchemaColumnInfo, SchemaObjectCounts, SchemaObjectType, SchemaRelationInfo } from '../shared/types.js'
 
 const SCHEMA_OBJECT_TYPES: SchemaObjectType[] = ['table', 'view', 'column', 'procedure', 'function', 'index']
+export const SCHEMA_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+export function isSchemaCacheStale(refreshedAt: string, now = Date.now()) {
+  const refreshedTime = Date.parse(refreshedAt)
+  return !Number.isFinite(refreshedTime) || now - refreshedTime >= SCHEMA_CACHE_MAX_AGE_MS
+}
+
+export async function resolveSchemaSnapshot(options: {
+  cachedSchema: string | null
+  needsRefresh: boolean
+  loadFresh: () => Promise<string>
+  saveFresh: (schemaJson: string) => void | Promise<void>
+}) {
+  const { cachedSchema, needsRefresh, loadFresh, saveFresh } = options
+  if (cachedSchema && !needsRefresh) return { schemaJson: cachedSchema, source: 'cache' as const }
+  try {
+    const schemaJson = await loadFresh()
+    await saveFresh(schemaJson)
+    return { schemaJson, source: 'fresh' as const }
+  } catch (error) {
+    if (cachedSchema) return { schemaJson: cachedSchema, source: 'stale-fallback' as const, refreshError: error }
+    throw error
+  }
+}
 
 function emptyCounts(): SchemaObjectCounts {
   return { table: 0, view: 0, column: 0, procedure: 0, function: 0, index: 0 }
@@ -19,7 +43,7 @@ export function missingSchemaCacheInfo(dataSourceId: string): SchemaCacheInfo {
   }
 }
 
-export function inspectSchemaCache(dataSourceId: string, schemaJson: string, refreshedAt: string): SchemaCacheInfo {
+export function inspectSchemaCache(dataSourceId: string, schemaJson: string, refreshedAt: string, now = Date.now()): SchemaCacheInfo {
   const counts = emptyCounts()
   const errors: SchemaCacheError[] = []
   let capturedAt: string | null = null
@@ -52,7 +76,7 @@ export function inspectSchemaCache(dataSourceId: string, schemaJson: string, ref
 
   return {
     dataSourceId,
-    state: errors.length ? 'partial' : 'ready',
+    state: isSchemaCacheStale(refreshedAt, now) ? 'stale' : errors.length ? 'partial' : 'ready',
     refreshedAt,
     capturedAt,
     sizeBytes: Buffer.byteLength(schemaJson, 'utf8'),

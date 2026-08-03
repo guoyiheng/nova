@@ -3,6 +3,7 @@ import type { ChatCompletionFunctionTool, ChatCompletionMessageParam } from 'ope
 import type { AgentProgressEvent, AgentStage, ChartSpec, DataSource, QueryTable } from '../shared/types.js'
 import { DbhubSession, loadSchemaSnapshot, parseQueryTable, toolResultText } from './dbhub.js'
 import { buildDsn, changesSchemaSql } from './dbhub-utils.js'
+import { resolveSchemaSnapshot } from './schema-cache.js'
 
 export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHub 查询当前数据库，并用中文给出准确、简洁的结论。
 
@@ -299,11 +300,12 @@ export async function runAgent(options: {
   baseUrl: string
   model: string
   schemaCache: string | null
+  schemaCacheNeedsRefresh: boolean
   onSchemaLoaded: (schemaJson: string) => void | Promise<void>
   onSchemaChanged: () => void | Promise<void>
   onProgress: (progress: AgentProgressEvent) => void
 }): Promise<AgentResult> {
-  const { queryId, question, source, password, apiKey, baseUrl, model, schemaCache, onSchemaLoaded, onSchemaChanged, onProgress } = options
+  const { queryId, question, source, password, apiKey, baseUrl, model, schemaCache, schemaCacheNeedsRefresh, onSchemaLoaded, onSchemaChanged, onProgress } = options
   const session = new DbhubSession()
   const progress = createProgressReporter(queryId, onProgress)
   let lastSql = ''
@@ -339,14 +341,22 @@ export async function runAgent(options: {
     }))
     const schemaStep = progress(
       'schema',
-      schemaCache ? '读取元数据缓存' : '缓存数据库结构',
-      schemaCache ? '正在读取本地数据库结构缓存' : '正在从数据库读取 Schema、表、视图、字段、函数和索引',
+      schemaCacheNeedsRefresh ? '更新元数据缓存' : schemaCache ? '读取元数据缓存' : '缓存数据库结构',
+      schemaCacheNeedsRefresh ? '缓存已超过 24 小时，正在从数据库重新读取结构' : schemaCache ? '正在读取本地数据库结构缓存' : '正在从数据库读取 Schema、表、视图、字段、函数和索引',
     )
     let schemaJson: string
     try {
-      schemaJson = schemaCache ?? await loadSchemaSnapshot(session)
-      if (!schemaCache) await onSchemaLoaded(schemaJson)
-      schemaStep.success(describeSchema(schemaJson, Boolean(schemaCache)))
+      const resolved = await resolveSchemaSnapshot({
+        cachedSchema: schemaCache,
+        needsRefresh: schemaCacheNeedsRefresh,
+        loadFresh: () => loadSchemaSnapshot(session),
+        saveFresh: onSchemaLoaded,
+      })
+      schemaJson = resolved.schemaJson
+      schemaStep.success([
+        describeSchema(schemaJson, resolved.source !== 'fresh'),
+        ...(resolved.source === 'stale-fallback' ? ['缓存更新失败，本次继续使用已有结构'] : []),
+      ].join('\n'))
     } catch (error) {
       schemaStep.error(error instanceof Error ? error.message : '数据库结构读取失败')
       throw error
