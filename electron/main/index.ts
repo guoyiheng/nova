@@ -10,6 +10,7 @@ import { Storage, uniqueImportedName } from './storage.js'
 import { fetchModelIds } from './models.js'
 import { checkAppUpdate, downloadAppUpdate, openDownloadedUpdate } from './updater.js'
 import { RendererUpdater } from './renderer-updater.js'
+import { inspectSchemaCache, missingSchemaCacheInfo } from './schema-cache.js'
 import type { AgentProgressEvent, AgentStage, DataSourceInput, QueryTable } from '../shared/types.js'
 
 let mainWindow: BrowserWindow | null = null
@@ -222,6 +223,31 @@ function registerIpc() {
     const parsedId = z.string().uuid().parse(id)
     if (!storage.getDataSource(parsedId)) throw new Error('数据源不存在。')
     storage.setActiveDataSource(parsedId)
+  })
+
+  ipcMain.handle('nova:schema-cache:get', (_event, id: string) => {
+    const dataSourceId = z.string().uuid().parse(id)
+    if (!storage.getDataSource(dataSourceId)) throw new Error('数据源不存在。')
+    const cached = storage.getSchemaCacheRecord(dataSourceId)
+    return cached
+      ? inspectSchemaCache(dataSourceId, cached.schemaJson, cached.refreshedAt)
+      : missingSchemaCacheInfo(dataSourceId)
+  })
+
+  ipcMain.handle('nova:schema-cache:rebuild', async (_event, id: string) => {
+    const dataSourceId = z.string().uuid().parse(id)
+    const source = storage.getDataSource(dataSourceId)
+    if (!source) throw new Error('数据源不存在。')
+    const session = new DbhubSession()
+    try {
+      await session.connect(buildDsn(source, storage.getDataSourceSecret(source.id)))
+      const schemaJson = await loadSchemaSnapshot(session)
+      storage.saveSchemaCache(source.id, schemaJson)
+      const cached = storage.getSchemaCacheRecord(source.id)!
+      return inspectSchemaCache(source.id, cached.schemaJson, cached.refreshedAt)
+    } finally {
+      await session.close()
+    }
   })
 
   ipcMain.handle('nova:data-source:test', async (_event, payload) => {

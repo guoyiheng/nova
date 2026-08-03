@@ -404,10 +404,14 @@ export class Storage {
   }
 
   getSchemaCache(dataSourceId: string): string | null {
-    const row = this.db.prepare('SELECT schema_json FROM schema_cache WHERE data_source_id = ?').get(dataSourceId) as
-      | { schema_json: string }
+    return this.getSchemaCacheRecord(dataSourceId)?.schemaJson ?? null
+  }
+
+  getSchemaCacheRecord(dataSourceId: string): { schemaJson: string; refreshedAt: string } | null {
+    const row = this.db.prepare('SELECT schema_json, refreshed_at FROM schema_cache WHERE data_source_id = ?').get(dataSourceId) as
+      | { schema_json: string; refreshed_at: string }
       | undefined
-    return row?.schema_json ?? null
+    return row ? { schemaJson: row.schema_json, refreshedAt: row.refreshed_at } : null
   }
 
   saveSchemaCache(dataSourceId: string, schemaJson: string) {

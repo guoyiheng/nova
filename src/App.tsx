@@ -73,6 +73,7 @@ import type {
   QueryRun,
   QueryMode,
   SavedSql,
+  SchemaCacheInfo,
   UpdateCheckResult,
   UpdateDownloadProgress,
 } from '../electron/shared/types'
@@ -1938,6 +1939,9 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
   const [connectionUrl, setConnectionUrl] = useState('')
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [schemaCache, setSchemaCache] = useState<SchemaCacheInfo | null>(null)
+  const [loadingSchemaCache, setLoadingSchemaCache] = useState(false)
+  const [rebuildingSchemaCache, setRebuildingSchemaCache] = useState(false)
 
   useEffect(() => {
     if (selected) {
@@ -1947,6 +1951,27 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
     }
   }, [selected, selectedId])
 
+  useEffect(() => {
+    let active = true
+    if (!selected) {
+      setSchemaCache(null)
+      setLoadingSchemaCache(false)
+      return () => { active = false }
+    }
+    setLoadingSchemaCache(true)
+    void window.nova.getSchemaCacheInfo(selected.id)
+      .then((info) => {
+        if (active) setSchemaCache(info)
+      })
+      .catch((error) => {
+        if (active) showToast(errorMessage(error), 'error')
+      })
+      .finally(() => {
+        if (active) setLoadingSchemaCache(false)
+      })
+    return () => { active = false }
+  }, [selected?.id])
+
   const save = async () => {
     setSaving(true)
     try {
@@ -1954,11 +1979,26 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
       setForm(sourceToInput(saved))
       setSelectedId(saved.id)
       await onDataChange()
+      setSchemaCache(await window.nova.getSchemaCacheInfo(saved.id))
       showToast('数据源已保存')
     } catch (error) {
       showToast(errorMessage(error), 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const rebuildSchemaCache = async () => {
+    if (!selected) return
+    setRebuildingSchemaCache(true)
+    try {
+      const info = await window.nova.rebuildSchemaCache(selected.id)
+      setSchemaCache(info)
+      showToast(info.state === 'partial' ? '结构缓存已重建，部分对象读取失败' : '结构缓存已重建', info.state === 'partial' ? 'error' : 'success')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setRebuildingSchemaCache(false)
     }
   }
 
@@ -2057,6 +2097,39 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
             passwordPlaceholder={selected?.hasPassword ? '已安全保存' : ''}
             disabled={saving}
           />
+
+          {selected && (
+            <section className="schema-cache-summary" aria-labelledby="schema-cache-heading">
+              <div className="schema-cache-heading">
+                <div>
+                  <span>结构缓存</span>
+                  <strong id="schema-cache-heading">
+                    {loadingSchemaCache ? '正在读取' : schemaCache?.state === 'ready' ? '状态正常' : schemaCache?.state === 'partial' ? '部分对象不可用' : '尚未创建'}
+                  </strong>
+                </div>
+                <button className="secondary-button compact" type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache || saving}>
+                  {rebuildingSchemaCache ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+                  {rebuildingSchemaCache ? '正在重建' : '重建缓存'}
+                </button>
+              </div>
+              {schemaCache?.state === 'missing' ? (
+                <p className="schema-cache-empty">首次智能查询时会自动读取数据库结构，也可以现在重建。</p>
+              ) : schemaCache ? (
+                <>
+                  <dl className="schema-cache-metrics">
+                    <div><dt>Schema</dt><dd>{schemaCache.schemaCount}</dd></div>
+                    <div><dt>表与视图</dt><dd>{schemaCache.counts.table + schemaCache.counts.view}</dd></div>
+                    <div><dt>字段</dt><dd>{schemaCache.counts.column}</dd></div>
+                    <div><dt>大小</dt><dd>{formatBytes(schemaCache.sizeBytes)}</dd></div>
+                  </dl>
+                  <p className="schema-cache-meta">
+                    最近更新 {schemaCache.refreshedAt ? formatTime(schemaCache.refreshedAt) : '未知'}
+                    {schemaCache.errors.length ? ` · ${schemaCache.errors.length} 类对象读取失败` : ''}
+                  </p>
+                </>
+              ) : null}
+            </section>
+          )}
 
           <div className="form-actions">
             <button className="secondary-button" type="button" onClick={() => void test()} disabled={testing || saving || !isDataSourceFormComplete(form)}>{testing ? <LoaderCircle size={16} className="spin" /> : <Database size={16} />}测试连接</button>

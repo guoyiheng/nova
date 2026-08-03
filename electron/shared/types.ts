@@ -45,6 +45,27 @@ export interface DataSourceInput {
   filePath?: string
 }
 
+export type SchemaObjectType = 'table' | 'view' | 'column' | 'procedure' | 'function' | 'index'
+
+export type SchemaObjectCounts = Record<SchemaObjectType, number>
+
+export interface SchemaCacheError {
+  schema: string
+  objectType: SchemaObjectType
+  message: string
+}
+
+export interface SchemaCacheInfo {
+  dataSourceId: string
+  state: 'missing' | 'ready' | 'partial'
+  refreshedAt: string | null
+  capturedAt: string | null
+  sizeBytes: number
+  schemaCount: number
+  counts: SchemaObjectCounts
+  errors: SchemaCacheError[]
+}
+
 export interface ModelSettings {
   baseUrl: string
   model: string
@@ -216,6 +237,8 @@ export interface NovaApi {
   testDataSource: (input: DataSourceInput) => Promise<{ ok: boolean; message: string }>
   chooseDatabaseFile: () => Promise<string | null>
   setActiveDataSource: (id: string) => Promise<void>
+  getSchemaCacheInfo: (dataSourceId: string) => Promise<SchemaCacheInfo>
+  rebuildSchemaCache: (dataSourceId: string) => Promise<SchemaCacheInfo>
   saveModelChannel: (input: ModelChannelInput) => Promise<ModelChannel>
   deleteModelChannel: (id: string) => Promise<void>
   listModels: (input: ModelListInput) => Promise<string[]>

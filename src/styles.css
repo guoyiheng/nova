@@ -2517,6 +2517,74 @@ summary:focus-visible {
   max-width: 780px;
 }
 
+.schema-cache-summary {
+  display: grid;
+  gap: 16px;
+  padding: 20px 0 22px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.schema-cache-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.schema-cache-heading>div {
+  display: grid;
+  gap: 3px;
+}
+
+.schema-cache-heading span,
+.schema-cache-metrics dt {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+.schema-cache-heading strong {
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.schema-cache-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.schema-cache-metrics>div {
+  display: grid;
+  gap: 4px;
+  padding-right: 18px;
+  border-right: 1px solid var(--rule);
+}
+
+.schema-cache-metrics>div+div {
+  padding-left: 18px;
+}
+
+.schema-cache-metrics>div:last-child {
+  border-right: 0;
+}
+
+.schema-cache-metrics dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.schema-cache-empty,
+.schema-cache-meta {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
 .model-channel-form {
   max-width: 720px;
 }
