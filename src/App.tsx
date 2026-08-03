@@ -127,6 +127,10 @@ export function App() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [downloadingUpdate, setDownloadingUpdate] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState<UpdateDownloadProgress | null>(null)
+  const [updateDownloaded, setUpdateDownloaded] = useState(false)
 
   const setPage = (newPage: Page) => {
     setPageState(newPage)
@@ -153,6 +157,8 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [toast])
 
+  useEffect(() => window.nova.onUpdateDownloadProgress(setDownloadProgress), [])
+
   if (!data) return <AppLoading />
 
   const activeSource = data.dataSources.find((source) => source.id === data.activeDataSourceId) ?? null
@@ -163,6 +169,58 @@ export function App() {
   }
 
   const showToast = (message: string, tone: Toast['tone'] = 'success') => setToast({ message, tone })
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true)
+    setUpdateDownloaded(false)
+    setDownloadProgress(null)
+    try {
+      const result = await window.nova.checkUpdate()
+      setUpdateResult(result)
+      if (result.hasUpdate) showToast(`发现新版本 ${result.releaseName || `v${result.latestVersion}`}`)
+      else showToast('当前已是最新版本', 'success')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  const handleDownloadUpdate = async (url: string) => {
+    if (!url || downloadingUpdate) return
+    setDownloadingUpdate(true)
+    setDownloadProgress({ transferred: 0, total: updateResult?.downloadSize ?? null, percent: 0 })
+    try {
+      await window.nova.downloadUpdate(url)
+      setUpdateDownloaded(true)
+      showToast('更新安装包已下载', 'success')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setDownloadingUpdate(false)
+    }
+  }
+
+  const handleApplyRendererUpdate = async () => {
+    if (downloadingUpdate) return
+    setDownloadingUpdate(true)
+    setDownloadProgress({ transferred: 0, total: updateResult?.downloadSize ?? null, percent: 0 })
+    try {
+      await window.nova.applyRendererUpdate()
+      showToast('界面已更新', 'success')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+      setDownloadingUpdate(false)
+    }
+  }
+
+  const handleOpenDownloadedUpdate = async () => {
+    try {
+      await window.nova.openDownloadedUpdate()
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    }
+  }
 
   const openQueryAtBottom = () => {
     try {
@@ -233,7 +291,22 @@ export function App() {
             <ModelsView channels={data.modelChannels} onDataChange={refresh} showToast={showToast} />
           )}
           {page === 'settings' && (
-            <SettingsView appVersion={data.appVersion} dataSources={data.dataSources} activeDataSourceId={data.activeDataSourceId} updateResult={updateResult} onUpdateResultChange={setUpdateResult} onDataChange={refresh} showToast={showToast} />
+            <SettingsView
+              appVersion={data.appVersion}
+              dataSources={data.dataSources}
+              activeDataSourceId={data.activeDataSourceId}
+              updateResult={updateResult}
+              checkingUpdate={checkingUpdate}
+              downloadingUpdate={downloadingUpdate}
+              downloadProgress={downloadProgress}
+              updateDownloaded={updateDownloaded}
+              onCheckUpdate={() => void handleCheckUpdate()}
+              onDownloadUpdate={handleDownloadUpdate}
+              onApplyRendererUpdate={() => void handleApplyRendererUpdate()}
+              onOpenDownloadedUpdate={() => void handleOpenDownloadedUpdate()}
+              onDataChange={refresh}
+              showToast={showToast}
+            />
           )}
         </main>
       </section>
@@ -2443,12 +2516,19 @@ function ModelsView({ channels, onDataChange, showToast }: {
   )
 }
 
-function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResult, onUpdateResultChange, onDataChange, showToast }: {
+function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResult, checkingUpdate, downloadingUpdate, downloadProgress, updateDownloaded, onCheckUpdate, onDownloadUpdate, onApplyRendererUpdate, onOpenDownloadedUpdate, onDataChange, showToast }: {
   appVersion: string
   dataSources: DataSource[]
   activeDataSourceId: string | null
   updateResult: UpdateCheckResult | null
-  onUpdateResultChange: (result: UpdateCheckResult) => void
+  checkingUpdate: boolean
+  downloadingUpdate: boolean
+  downloadProgress: UpdateDownloadProgress | null
+  updateDownloaded: boolean
+  onCheckUpdate: () => void
+  onDownloadUpdate: (url: string) => Promise<void>
+  onApplyRendererUpdate: () => void
+  onOpenDownloadedUpdate: () => void
   onDataChange: () => Promise<void>
   showToast: (message: string, tone?: Toast['tone']) => void
 }) {
@@ -2517,67 +2597,6 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
       showToast(errorMessage(error), 'error')
     } finally {
       setImporting(false)
-    }
-  }
-
-  const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [downloadingUpdate, setDownloadingUpdate] = useState(false)
-  const [downloadProgress, setDownloadProgress] = useState<UpdateDownloadProgress | null>(null)
-  const [updateDownloaded, setUpdateDownloaded] = useState(false)
-
-  useEffect(() => window.nova.onUpdateDownloadProgress(setDownloadProgress), [])
-
-  const handleCheckUpdate = async () => {
-    setCheckingUpdate(true)
-    setUpdateDownloaded(false)
-    setDownloadProgress(null)
-    try {
-      const res = await window.nova.checkUpdate()
-      onUpdateResultChange(res)
-      if (res.hasUpdate) {
-        showToast(`发现新版本 ${res.releaseName || `v${res.latestVersion}`}`)
-      } else {
-        showToast('当前已是最新版本', 'success')
-      }
-    } catch (error) {
-      showToast(errorMessage(error), 'error')
-    } finally {
-      setCheckingUpdate(false)
-    }
-  }
-
-  const handleDownloadUpdate = async (url: string) => {
-    if (!url) return
-    setDownloadingUpdate(true)
-    setDownloadProgress({ transferred: 0, total: updateResult?.downloadSize ?? null, percent: 0 })
-    try {
-      await window.nova.downloadUpdate(url)
-      setUpdateDownloaded(true)
-      showToast('更新安装包已下载', 'success')
-    } catch (error) {
-      showToast(errorMessage(error), 'error')
-    } finally {
-      setDownloadingUpdate(false)
-    }
-  }
-
-  const handleApplyRendererUpdate = async () => {
-    setDownloadingUpdate(true)
-    setDownloadProgress({ transferred: 0, total: updateResult?.downloadSize ?? null, percent: 0 })
-    try {
-      await window.nova.applyRendererUpdate()
-      showToast('界面已更新', 'success')
-    } catch (error) {
-      showToast(errorMessage(error), 'error')
-      setDownloadingUpdate(false)
-    }
-  }
-
-  const handleOpenDownloadedUpdate = async () => {
-    try {
-      await window.nova.openDownloadedUpdate()
-    } catch (error) {
-      showToast(errorMessage(error), 'error')
     }
   }
 
@@ -2696,7 +2715,7 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
                   <button
                     className="secondary-button compact update-check-btn"
                     type="button"
-                    onClick={() => void handleCheckUpdate()}
+                    onClick={onCheckUpdate}
                     disabled={checkingUpdate || downloadingUpdate}
                   >
                     {checkingUpdate ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
@@ -2704,16 +2723,16 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
                   </button>
                   {updateResult?.hasUpdate && (
                     updateResult.updateKind === 'renderer' ? (
-                      <button className="primary-button compact update-now-btn" type="button" onClick={() => void handleApplyRendererUpdate()} disabled={downloadingUpdate}>
+                      <button className="primary-button compact update-now-btn" type="button" onClick={onApplyRendererUpdate} disabled={downloadingUpdate}>
                         {downloadingUpdate ? <LoaderCircle size={14} className="spin" /> : <CloudDownload size={14} />}
                         <span>{downloadingUpdate ? '正在更新' : '立即更新'}</span>
                       </button>
                     ) : updateDownloaded ? (
-                      <button className="primary-button compact update-now-btn" type="button" onClick={() => void handleOpenDownloadedUpdate()}>
+                      <button className="primary-button compact update-now-btn" type="button" onClick={onOpenDownloadedUpdate}>
                         <PackageOpen size={14} /><span>打开安装包</span>
                       </button>
                     ) : updateResult.downloadUrl ? (
-                      <button className="primary-button compact update-now-btn" type="button" onClick={() => void handleDownloadUpdate(updateResult.downloadUrl!)} disabled={downloadingUpdate}>
+                      <button className="primary-button compact update-now-btn" type="button" onClick={() => void onDownloadUpdate(updateResult.downloadUrl!)} disabled={downloadingUpdate}>
                         {downloadingUpdate ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />}
                         <span>{downloadingUpdate ? '正在下载' : '立即更新'}</span>
                       </button>
