@@ -66,6 +66,30 @@ export interface SchemaCacheInfo {
   errors: SchemaCacheError[]
 }
 
+export interface SchemaColumnInfo {
+  name: string
+  type: string
+  nullable: boolean | null
+  description?: string
+}
+
+export interface SchemaRelationInfo {
+  name: string
+  type: 'table' | 'view'
+  comment?: string
+  columns: SchemaColumnInfo[]
+}
+
+export interface SchemaGroupInfo {
+  name: string
+  relations: SchemaRelationInfo[]
+}
+
+export interface SchemaCacheStructure {
+  dataSourceId: string
+  schemas: SchemaGroupInfo[]
+}
+
 export interface ModelSettings {
   baseUrl: string
   model: string
@@ -238,6 +262,7 @@ export interface NovaApi {
   chooseDatabaseFile: () => Promise<string | null>
   setActiveDataSource: (id: string) => Promise<void>
   getSchemaCacheInfo: (dataSourceId: string) => Promise<SchemaCacheInfo>
+  getSchemaCacheStructure: (dataSourceId: string) => Promise<SchemaCacheStructure>
   rebuildSchemaCache: (dataSourceId: string) => Promise<SchemaCacheInfo>
   saveModelChannel: (input: ModelChannelInput) => Promise<ModelChannel>
   deleteModelChannel: (id: string) => Promise<void>

@@ -10,7 +10,7 @@ import { Storage, uniqueImportedName } from './storage.js'
 import { fetchModelIds } from './models.js'
 import { checkAppUpdate, downloadAppUpdate, openDownloadedUpdate } from './updater.js'
 import { RendererUpdater } from './renderer-updater.js'
-import { inspectSchemaCache, missingSchemaCacheInfo } from './schema-cache.js'
+import { extractSchemaCacheStructure, inspectSchemaCache, missingSchemaCacheInfo } from './schema-cache.js'
 import type { AgentProgressEvent, AgentStage, DataSourceInput, QueryTable } from '../shared/types.js'
 
 let mainWindow: BrowserWindow | null = null
@@ -232,6 +232,13 @@ function registerIpc() {
     return cached
       ? inspectSchemaCache(dataSourceId, cached.schemaJson, cached.refreshedAt)
       : missingSchemaCacheInfo(dataSourceId)
+  })
+
+  ipcMain.handle('nova:schema-cache:structure', (_event, id: string) => {
+    const dataSourceId = z.string().uuid().parse(id)
+    if (!storage.getDataSource(dataSourceId)) throw new Error('数据源不存在。')
+    const cached = storage.getSchemaCacheRecord(dataSourceId)
+    return extractSchemaCacheStructure(dataSourceId, cached?.schemaJson ?? '')
   })
 
   ipcMain.handle('nova:schema-cache:rebuild', async (_event, id: string) => {

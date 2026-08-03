@@ -74,6 +74,7 @@ import type {
   QueryMode,
   SavedSql,
   SchemaCacheInfo,
+  SchemaCacheStructure,
   UpdateCheckResult,
   UpdateDownloadProgress,
 } from '../electron/shared/types'
@@ -1942,6 +1943,10 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
   const [schemaCache, setSchemaCache] = useState<SchemaCacheInfo | null>(null)
   const [loadingSchemaCache, setLoadingSchemaCache] = useState(false)
   const [rebuildingSchemaCache, setRebuildingSchemaCache] = useState(false)
+  const [showSchemaStructure, setShowSchemaStructure] = useState(false)
+  const [schemaStructure, setSchemaStructure] = useState<SchemaCacheStructure | null>(null)
+  const [loadingSchemaStructure, setLoadingSchemaStructure] = useState(false)
+  const [schemaSearch, setSchemaSearch] = useState('')
 
   useEffect(() => {
     if (selected) {
@@ -1955,9 +1960,16 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
     let active = true
     if (!selected) {
       setSchemaCache(null)
+      setSchemaStructure(null)
+      setShowSchemaStructure(false)
+      setSchemaSearch('')
       setLoadingSchemaCache(false)
       return () => { active = false }
     }
+    setSchemaCache(null)
+    setSchemaStructure(null)
+    setShowSchemaStructure(false)
+    setSchemaSearch('')
     setLoadingSchemaCache(true)
     void window.nova.getSchemaCacheInfo(selected.id)
       .then((info) => {
@@ -1971,6 +1983,26 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
       })
     return () => { active = false }
   }, [selected?.id])
+
+  const filteredSchemaStructure = useMemo(() => {
+    if (!schemaStructure) return []
+    const query = schemaSearch.trim().toLocaleLowerCase()
+    if (!query) return schemaStructure.schemas
+    return schemaStructure.schemas
+      .map((schema) => ({
+        ...schema,
+        relations: schema.relations.flatMap((relation) => {
+          const relationMatches = [relation.name, relation.comment, schema.name]
+            .some((value) => value?.toLocaleLowerCase().includes(query))
+          const columns = relationMatches
+            ? relation.columns
+            : relation.columns.filter((column) => [column.name, column.type, column.description]
+              .some((value) => value?.toLocaleLowerCase().includes(query)))
+          return relationMatches || columns.length ? [{ ...relation, columns }] : []
+        }),
+      }))
+      .filter((schema) => schema.relations.length)
+  }, [schemaSearch, schemaStructure])
 
   const save = async () => {
     setSaving(true)
@@ -1994,11 +2026,31 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
     try {
       const info = await window.nova.rebuildSchemaCache(selected.id)
       setSchemaCache(info)
+      if (showSchemaStructure) setSchemaStructure(await window.nova.getSchemaCacheStructure(selected.id))
       showToast(info.state === 'partial' ? '结构缓存已重建，部分对象读取失败' : '结构缓存已重建', info.state === 'partial' ? 'error' : 'success')
     } catch (error) {
       showToast(errorMessage(error), 'error')
     } finally {
       setRebuildingSchemaCache(false)
+    }
+  }
+
+  const toggleSchemaStructure = async () => {
+    if (!selected) return
+    if (showSchemaStructure) {
+      setShowSchemaStructure(false)
+      return
+    }
+    setShowSchemaStructure(true)
+    if (schemaStructure) return
+    setLoadingSchemaStructure(true)
+    try {
+      setSchemaStructure(await window.nova.getSchemaCacheStructure(selected.id))
+    } catch (error) {
+      setShowSchemaStructure(false)
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setLoadingSchemaStructure(false)
     }
   }
 
@@ -2107,10 +2159,18 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
                     {loadingSchemaCache ? '正在读取' : schemaCache?.state === 'ready' ? '状态正常' : schemaCache?.state === 'partial' ? '部分对象不可用' : '尚未创建'}
                   </strong>
                 </div>
-                <button className="secondary-button compact" type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache || saving}>
-                  {rebuildingSchemaCache ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
-                  {rebuildingSchemaCache ? '正在重建' : '重建缓存'}
-                </button>
+                <div className="schema-cache-actions">
+                  {schemaCache && schemaCache.state !== 'missing' && (
+                    <button className="secondary-button compact" type="button" onClick={() => void toggleSchemaStructure()} disabled={loadingSchemaStructure} aria-expanded={showSchemaStructure}>
+                      {loadingSchemaStructure ? <LoaderCircle size={14} className="spin" /> : showSchemaStructure ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+                      {showSchemaStructure ? '收起结构' : '查看结构'}
+                    </button>
+                  )}
+                  <button className="secondary-button compact" type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache || saving}>
+                    {rebuildingSchemaCache ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+                    {rebuildingSchemaCache ? '正在重建' : '重建缓存'}
+                  </button>
+                </div>
               </div>
               {schemaCache?.state === 'missing' ? (
                 <p className="schema-cache-empty">首次智能查询时会自动读取数据库结构，也可以现在重建。</p>
@@ -2126,6 +2186,49 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
                     最近更新 {schemaCache.refreshedAt ? formatTime(schemaCache.refreshedAt) : '未知'}
                     {schemaCache.errors.length ? ` · ${schemaCache.errors.length} 类对象读取失败` : ''}
                   </p>
+                  {showSchemaStructure && (
+                    <div className="schema-browser">
+                      <label className="schema-browser-search">
+                        <Search size={15} />
+                        <input value={schemaSearch} onChange={(event) => setSchemaSearch(event.target.value)} placeholder="搜索表、视图或字段" />
+                      </label>
+                      <div className="schema-browser-content">
+                        {filteredSchemaStructure.map((schema) => (
+                          <section className="schema-browser-group" key={schema.name}>
+                            <header><strong>{schema.name}</strong><span>{schema.relations.length} 个对象</span></header>
+                            <div className="schema-relation-list">
+                              {schema.relations.map((relation) => (
+                                <details className="schema-relation" key={`${relation.type}-${relation.name}`}>
+                                  <summary>
+                                    <ChevronRight size={14} />
+                                    <span className={`schema-object-kind ${relation.type}`}>{relation.type === 'table' ? '表' : '视图'}</span>
+                                    <strong>{relation.name}</strong>
+                                    <small>{relation.columns.length} 个字段</small>
+                                  </summary>
+                                  {relation.comment && <p>{relation.comment}</p>}
+                                  {relation.columns.length ? (
+                                    <div className="schema-column-list">
+                                      {relation.columns.map((column) => (
+                                        <div key={column.name}>
+                                          <strong>{column.name}</strong>
+                                          <span>{column.type || '未知类型'}</span>
+                                          <small>{column.nullable === false ? '必填' : column.nullable === true ? '可空' : ''}</small>
+                                          {column.description && <p>{column.description}</p>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : <p className="schema-columns-empty">缓存中没有字段详情</p>}
+                                </details>
+                              ))}
+                            </div>
+                          </section>
+                        ))}
+                        {!loadingSchemaStructure && !filteredSchemaStructure.length && (
+                          <div className="schema-browser-empty">没有匹配的数据库对象</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : null}
             </section>

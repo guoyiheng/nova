@@ -1,4 +1,4 @@
-import type { SchemaCacheError, SchemaCacheInfo, SchemaObjectCounts, SchemaObjectType } from '../shared/types.js'
+import type { SchemaCacheError, SchemaCacheInfo, SchemaCacheStructure, SchemaColumnInfo, SchemaObjectCounts, SchemaObjectType, SchemaRelationInfo } from '../shared/types.js'
 
 const SCHEMA_OBJECT_TYPES: SchemaObjectType[] = ['table', 'view', 'column', 'procedure', 'function', 'index']
 
@@ -59,5 +59,64 @@ export function inspectSchemaCache(dataSourceId: string, schemaJson: string, ref
     schemaCount,
     counts,
     errors,
+  }
+}
+
+function textValue(value: unknown) {
+  return typeof value === 'string' ? value : ''
+}
+
+function normalizeColumn(value: unknown): SchemaColumnInfo | null {
+  if (!value || typeof value !== 'object') return null
+  const column = value as Record<string, unknown>
+  const name = textValue(column.name)
+  if (!name) return null
+  const description = textValue(column.description)
+  return {
+    name,
+    type: textValue(column.type),
+    nullable: typeof column.nullable === 'boolean' ? column.nullable : null,
+    ...(description ? { description } : {}),
+  }
+}
+
+function normalizeRelation(value: unknown, type: SchemaRelationInfo['type']): SchemaRelationInfo | null {
+  if (!value || typeof value !== 'object') return null
+  const relation = value as Record<string, unknown>
+  const name = textValue(relation.name)
+  if (!name) return null
+  const comment = textValue(relation.comment)
+  return {
+    name,
+    type,
+    ...(comment ? { comment } : {}),
+    columns: Array.isArray(relation.columns)
+      ? relation.columns.map(normalizeColumn).filter((column): column is SchemaColumnInfo => Boolean(column))
+      : [],
+  }
+}
+
+export function extractSchemaCacheStructure(dataSourceId: string, schemaJson: string): SchemaCacheStructure {
+  try {
+    const parsed = JSON.parse(schemaJson) as {
+      schemas?: Record<string, Record<'table' | 'view', { results?: unknown[] }>>
+    }
+    const schemas = Object.entries(parsed.schemas ?? {}).map(([schemaName, schema]) => {
+      const relations: SchemaRelationInfo[] = []
+      for (const type of ['table', 'view'] as const) {
+        const results = schema?.[type]?.results
+        if (!Array.isArray(results)) continue
+        for (const result of results) {
+          const relation = normalizeRelation(result, type)
+          if (relation) relations.push(relation)
+        }
+      }
+      relations.sort((left, right) => left.name.localeCompare(right.name))
+      return { name: schemaName, relations }
+    })
+    schemas.sort((left, right) => left.name.localeCompare(right.name))
+    return { dataSourceId, schemas }
+  } catch {
+    return { dataSourceId, schemas: [] }
   }
 }

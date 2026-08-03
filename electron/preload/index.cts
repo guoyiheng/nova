@@ -9,6 +9,7 @@ const api: NovaApi = {
   chooseDatabaseFile: () => ipcRenderer.invoke('nova:data-source:choose-file'),
   setActiveDataSource: (id: string) => ipcRenderer.invoke('nova:data-source:activate', id),
   getSchemaCacheInfo: (dataSourceId: string) => ipcRenderer.invoke('nova:schema-cache:get', dataSourceId),
+  getSchemaCacheStructure: (dataSourceId: string) => ipcRenderer.invoke('nova:schema-cache:structure', dataSourceId),
   rebuildSchemaCache: (dataSourceId: string) => ipcRenderer.invoke('nova:schema-cache:rebuild', dataSourceId),
   saveModelChannel: (input: ModelChannelInput) => ipcRenderer.invoke('nova:model-channel:save', input),
   deleteModelChannel: (id: string) => ipcRenderer.invoke('nova:model-channel:delete', id),
