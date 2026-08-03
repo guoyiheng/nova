@@ -2579,7 +2579,7 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
               <button className="icon-button" onClick={() => setShowBatchModal(false)} aria-label="关闭弹窗"><X size={16} /></button>
             </header>
             <div className="detail-modal-body batch-import-body">
-              <label className="field">
+              <div className="field">
                 <span>数据源</span>
                 <SelectControl
                   ariaLabel="选择 SQL 收藏的数据源"
@@ -2588,7 +2588,7 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
                   onChange={setBatchDataSourceId}
                   disabled={batchImporting}
                 />
-              </label>
+              </div>
               <label className="field">
                 <span>SQL 内容</span>
                 <textarea
