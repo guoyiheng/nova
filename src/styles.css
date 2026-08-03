@@ -2491,6 +2491,54 @@ summary:focus-visible {
   letter-spacing: 0;
 }
 
+.editor-heading.has-tabs {
+  margin-bottom: 18px;
+}
+
+.source-editor-tabs {
+  width: 100%;
+  max-width: 780px;
+  min-height: 44px;
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.source-editor-tabs button {
+  min-width: 88px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+  font-weight: 550;
+}
+
+.source-editor-tabs button:hover {
+  color: var(--ink);
+}
+
+.source-editor-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+
+.source-editor-tabs button i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #b36b16;
+}
+
 .danger-icon-button {
   width: 36px;
   height: 36px;
@@ -2518,10 +2566,11 @@ summary:focus-visible {
 }
 
 .schema-cache-summary {
+  width: 100%;
+  max-width: 780px;
   display: grid;
   gap: 16px;
-  padding: 20px 0 22px;
-  border-top: 1px solid var(--rule);
+  padding: 6px 0 22px;
   border-bottom: 1px solid var(--rule);
 }
 
@@ -2532,7 +2581,7 @@ summary:focus-visible {
   gap: 20px;
 }
 
-.schema-cache-heading>div {
+.schema-cache-status {
   display: grid;
   gap: 3px;
 }
@@ -2553,6 +2602,7 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
 }
 
 .schema-cache-metrics {
@@ -2589,6 +2639,24 @@ summary:focus-visible {
   color: var(--ink-faint);
   font-size: 0.75rem;
   line-height: 1.5;
+}
+
+.schema-cache-reason {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f6eddd;
+  color: #7c541d;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.schema-cache-reason svg {
+  flex: 0 0 auto;
 }
 
 .schema-browser {

@@ -1947,6 +1947,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
   const [schemaStructure, setSchemaStructure] = useState<SchemaCacheStructure | null>(null)
   const [loadingSchemaStructure, setLoadingSchemaStructure] = useState(false)
   const [schemaSearch, setSchemaSearch] = useState('')
+  const [editorTab, setEditorTab] = useState<'connection' | 'schema'>('connection')
 
   useEffect(() => {
     if (selected) {
@@ -2072,6 +2073,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
     await window.nova.deleteDataSource(selected.id)
     setForm({ ...EMPTY_SOURCE })
     setSelectedId('new')
+    setEditorTab('connection')
     await onDataChange()
     showToast('数据源已删除')
   }
@@ -2097,7 +2099,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
       <section className="source-index">
         <div className="source-index-heading">
           <div><h1>连接</h1><span>{sources.length} 个数据源</span></div>
-          <button className="icon-button dark" onClick={() => { setForm({ ...EMPTY_SOURCE }); setConnectionUrl(''); setSelectedId('new') }} aria-label="添加数据源" title="添加数据源"><Plus size={17} /></button>
+          <button className="icon-button dark" onClick={() => { setForm({ ...EMPTY_SOURCE }); setConnectionUrl(''); setSelectedId('new'); setEditorTab('connection') }} aria-label="添加数据源" title="添加数据源"><Plus size={17} /></button>
         </div>
         <div className="source-list">
           {sources.map((source) => (
@@ -2113,132 +2115,151 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
       </section>
 
       <section className="source-editor">
-        <div className="editor-heading">
+        <div className={`editor-heading ${selected ? 'has-tabs' : ''}`}>
           <div><h2>{selected ? selected.name : '添加数据源'}</h2></div>
           {selected && <button className="danger-icon-button" onClick={() => void remove()} aria-label="删除数据源" title="删除数据源"><Trash2 size={17} /></button>}
         </div>
 
-        {!selected && (
-          <div className="connection-url-import">
-            <label htmlFor="connection-url">粘贴连接串</label>
-            <div>
-              <input
-                id="connection-url"
-                value={connectionUrl}
-                onChange={(event) => setConnectionUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    importConnectionUrl()
-                  }
-                }}
-                placeholder="mysql://user:password@host:3306/database"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button className="secondary-button" type="button" onClick={importConnectionUrl} disabled={!connectionUrl.trim()}><Import size={16} />识别导入</button>
-            </div>
+        {selected && (
+          <div className="source-editor-tabs" role="tablist" aria-label="数据源详情">
+            <button role="tab" aria-selected={editorTab === 'connection'} className={editorTab === 'connection' ? 'active' : ''} onClick={() => setEditorTab('connection')}>连接信息</button>
+            <button role="tab" aria-selected={editorTab === 'schema'} className={editorTab === 'schema' ? 'active' : ''} onClick={() => setEditorTab('schema')}>
+              数据库结构
+              {schemaCache?.state === 'stale' && <i aria-label="结构缓存需要更新" />}
+            </button>
           </div>
         )}
 
-        <form onSubmit={(event) => { event.preventDefault(); void save() }} className="source-form">
-          <DataSourceFields
-            form={form}
-            setForm={setForm}
-            onChooseFile={() => void chooseFile()}
-            passwordPlaceholder={selected?.hasPassword ? '已安全保存' : ''}
-            disabled={saving}
-          />
-
-          {selected && (
-            <section className="schema-cache-summary" aria-labelledby="schema-cache-heading">
-              <div className="schema-cache-heading">
+        {(!selected || editorTab === 'connection') && (
+          <>
+            {!selected && (
+              <div className="connection-url-import">
+                <label htmlFor="connection-url">粘贴连接串</label>
                 <div>
-                  <span>结构缓存</span>
-                  <strong id="schema-cache-heading">
-                    {loadingSchemaCache ? '正在读取' : schemaCache?.state === 'ready' ? '状态正常' : schemaCache?.state === 'partial' ? '部分对象不可用' : schemaCache?.state === 'stale' ? '需要更新' : '尚未创建'}
-                  </strong>
-                </div>
-                <div className="schema-cache-actions">
-                  {schemaCache && schemaCache.state !== 'missing' && (
-                    <button className="secondary-button compact" type="button" onClick={() => void toggleSchemaStructure()} disabled={loadingSchemaStructure} aria-expanded={showSchemaStructure}>
-                      {loadingSchemaStructure ? <LoaderCircle size={14} className="spin" /> : showSchemaStructure ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
-                      {showSchemaStructure ? '收起结构' : '查看结构'}
-                    </button>
-                  )}
-                  <button className={`${schemaCache?.state === 'stale' ? 'primary-button' : 'secondary-button'} compact`} type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache || saving}>
-                    {rebuildingSchemaCache ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
-                    {rebuildingSchemaCache ? '正在重建' : '重建缓存'}
-                  </button>
+                  <input
+                    id="connection-url"
+                    value={connectionUrl}
+                    onChange={(event) => setConnectionUrl(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        importConnectionUrl()
+                      }
+                    }}
+                    placeholder="mysql://user:password@host:3306/database"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button className="secondary-button" type="button" onClick={importConnectionUrl} disabled={!connectionUrl.trim()}><Import size={16} />识别导入</button>
                 </div>
               </div>
-              {schemaCache?.state === 'missing' ? (
-                <p className="schema-cache-empty">首次智能查询时会自动读取数据库结构，也可以现在重建。</p>
-              ) : schemaCache ? (
-                <>
-                  <dl className="schema-cache-metrics">
-                    <div><dt>Schema</dt><dd>{schemaCache.schemaCount}</dd></div>
-                    <div><dt>表与视图</dt><dd>{schemaCache.counts.table + schemaCache.counts.view}</dd></div>
-                    <div><dt>字段</dt><dd>{schemaCache.counts.column}</dd></div>
-                    <div><dt>大小</dt><dd>{formatBytes(schemaCache.sizeBytes)}</dd></div>
-                  </dl>
-                  <p className="schema-cache-meta">
-                    最近更新 {schemaCache.refreshedAt ? formatTime(schemaCache.refreshedAt) : '未知'}
-                    {schemaCache.errors.length ? ` · ${schemaCache.errors.length} 类对象读取失败` : ''}
-                  </p>
-                  {showSchemaStructure && (
-                    <div className="schema-browser">
-                      <label className="schema-browser-search">
-                        <Search size={15} />
-                        <input value={schemaSearch} onChange={(event) => setSchemaSearch(event.target.value)} placeholder="搜索表、视图或字段" />
-                      </label>
-                      <div className="schema-browser-content">
-                        {filteredSchemaStructure.map((schema) => (
-                          <section className="schema-browser-group" key={schema.name}>
-                            <header><strong>{schema.name}</strong><span>{schema.relations.length} 个对象</span></header>
-                            <div className="schema-relation-list">
-                              {schema.relations.map((relation) => (
-                                <details className="schema-relation" key={`${relation.type}-${relation.name}`}>
-                                  <summary>
-                                    <ChevronRight size={14} />
-                                    <span className={`schema-object-kind ${relation.type}`}>{relation.type === 'table' ? '表' : '视图'}</span>
-                                    <strong>{relation.name}</strong>
-                                    <small>{relation.columns.length} 个字段</small>
-                                  </summary>
-                                  {relation.comment && <p>{relation.comment}</p>}
-                                  {relation.columns.length ? (
-                                    <div className="schema-column-list">
-                                      {relation.columns.map((column) => (
-                                        <div key={column.name}>
-                                          <strong>{column.name}</strong>
-                                          <span>{column.type || '未知类型'}</span>
-                                          <small>{column.nullable === false ? '必填' : column.nullable === true ? '可空' : ''}</small>
-                                          {column.description && <p>{column.description}</p>}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : <p className="schema-columns-empty">缓存中没有字段详情</p>}
-                                </details>
-                              ))}
-                            </div>
-                          </section>
-                        ))}
-                        {!loadingSchemaStructure && !filteredSchemaStructure.length && (
-                          <div className="schema-browser-empty">没有匹配的数据库对象</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : null}
-            </section>
-          )}
+            )}
 
-          <div className="form-actions">
-            <button className="secondary-button" type="button" onClick={() => void test()} disabled={testing || saving || !isDataSourceFormComplete(form)}>{testing ? <LoaderCircle size={16} className="spin" /> : <Database size={16} />}测试连接</button>
-            <button className="primary-button" type="submit" disabled={saving || testing || !isDataSourceFormComplete(form)}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存数据源</button>
-          </div>
-        </form>
+            <form onSubmit={(event) => { event.preventDefault(); void save() }} className="source-form">
+              <DataSourceFields
+                form={form}
+                setForm={setForm}
+                onChooseFile={() => void chooseFile()}
+                passwordPlaceholder={selected?.hasPassword ? '已安全保存' : ''}
+                disabled={saving}
+              />
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={() => void test()} disabled={testing || saving || !isDataSourceFormComplete(form)}>{testing ? <LoaderCircle size={16} className="spin" /> : <Database size={16} />}测试连接</button>
+                <button className="primary-button" type="submit" disabled={saving || testing || !isDataSourceFormComplete(form)}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存数据源</button>
+              </div>
+            </form>
+          </>
+        )}
+
+        {selected && editorTab === 'schema' && (
+          <section className="schema-cache-summary" aria-labelledby="schema-cache-heading">
+            <div className="schema-cache-heading">
+              <div className="schema-cache-status">
+                <span>缓存状态</span>
+                <strong id="schema-cache-heading">
+                  {loadingSchemaCache ? '正在读取' : schemaCache?.state === 'ready' ? '状态正常' : schemaCache?.state === 'partial' ? '部分对象不可用' : schemaCache?.state === 'stale' ? '需要更新' : '尚未创建'}
+                </strong>
+              </div>
+              <div className="schema-cache-actions">
+                {schemaCache && schemaCache.state !== 'missing' && (
+                  <button className="secondary-button compact" type="button" onClick={() => void toggleSchemaStructure()} disabled={loadingSchemaStructure} aria-expanded={showSchemaStructure}>
+                    {loadingSchemaStructure ? <LoaderCircle size={14} className="spin" /> : showSchemaStructure ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+                    {showSchemaStructure ? '收起结构' : '查看结构'}
+                  </button>
+                )}
+                <button className={`${schemaCache?.state === 'stale' ? 'primary-button' : 'secondary-button'} compact`} type="button" onClick={() => void rebuildSchemaCache()} disabled={rebuildingSchemaCache || loadingSchemaCache}>
+                  {rebuildingSchemaCache ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}
+                  {rebuildingSchemaCache ? '正在重建' : '重建缓存'}
+                </button>
+              </div>
+            </div>
+            {schemaCache?.state === 'stale' && (
+              <p className="schema-cache-reason"><CircleAlert size={15} />已超过 24 小时未更新，数据库结构可能已经变化。</p>
+            )}
+            {schemaCache?.state === 'partial' && (
+              <p className="schema-cache-reason"><CircleAlert size={15} />部分数据库对象读取失败，重建缓存可以再次尝试读取。</p>
+            )}
+            {schemaCache?.state === 'missing' ? (
+              <p className="schema-cache-empty">首次智能查询时会自动读取数据库结构，也可以现在重建。</p>
+            ) : schemaCache ? (
+              <>
+                <dl className="schema-cache-metrics">
+                  <div><dt>Schema</dt><dd>{schemaCache.schemaCount}</dd></div>
+                  <div><dt>表与视图</dt><dd>{schemaCache.counts.table + schemaCache.counts.view}</dd></div>
+                  <div><dt>字段</dt><dd>{schemaCache.counts.column}</dd></div>
+                  <div><dt>大小</dt><dd>{formatBytes(schemaCache.sizeBytes)}</dd></div>
+                </dl>
+                <p className="schema-cache-meta">
+                  最近更新 {schemaCache.refreshedAt ? formatTime(schemaCache.refreshedAt) : '未知'}
+                  {schemaCache.errors.length ? ` · ${schemaCache.errors.length} 类对象读取失败` : ''}
+                </p>
+                {showSchemaStructure && (
+                  <div className="schema-browser">
+                    <label className="schema-browser-search">
+                      <Search size={15} />
+                      <input value={schemaSearch} onChange={(event) => setSchemaSearch(event.target.value)} placeholder="搜索表、视图或字段" />
+                    </label>
+                    <div className="schema-browser-content">
+                      {filteredSchemaStructure.map((schema) => (
+                        <section className="schema-browser-group" key={schema.name}>
+                          <header><strong>{schema.name}</strong><span>{schema.relations.length} 个对象</span></header>
+                          <div className="schema-relation-list">
+                            {schema.relations.map((relation) => (
+                              <details className="schema-relation" key={`${relation.type}-${relation.name}`}>
+                                <summary>
+                                  <ChevronRight size={14} />
+                                  <span className={`schema-object-kind ${relation.type}`}>{relation.type === 'table' ? '表' : '视图'}</span>
+                                  <strong>{relation.name}</strong>
+                                  <small>{relation.columns.length} 个字段</small>
+                                </summary>
+                                {relation.comment && <p>{relation.comment}</p>}
+                                {relation.columns.length ? (
+                                  <div className="schema-column-list">
+                                    {relation.columns.map((column) => (
+                                      <div key={column.name}>
+                                        <strong>{column.name}</strong>
+                                        <span>{column.type || '未知类型'}</span>
+                                        <small>{column.nullable === false ? '必填' : column.nullable === true ? '可空' : ''}</small>
+                                        {column.description && <p>{column.description}</p>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : <p className="schema-columns-empty">缓存中没有字段详情</p>}
+                              </details>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                      {!loadingSchemaStructure && !filteredSchemaStructure.length && (
+                        <div className="schema-browser-empty">没有匹配的数据库对象</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : null}
+          </section>
+        )}
       </section>
     </div>
   )
