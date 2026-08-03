@@ -4,11 +4,12 @@ import type { AgentProgressEvent, AgentStage, ChartSpec, DataSource, QueryTable 
 import { DbhubSession, loadSchemaSnapshot, parseQueryTable, toolResultText } from './dbhub.js'
 import { buildDsn, changesSchemaSql } from './dbhub-utils.js'
 import { resolveSchemaSnapshot } from './schema-cache.js'
+import { buildSchemaContext } from './schema-context.js'
 
 export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHub 查询当前数据库，并用中文给出准确、简洁的结论。
 
 规则：
-1. 数据库结构已由 Nova 缓存在上下文中。必须基于缓存的表、视图和字段规划 SQL，如果找不到，再去猜测对象名称。
+1. 数据库结构上下文包含按当前问题筛选的表、视图和字段详情，以及全局对象目录。必须优先基于这些信息规划 SQL；目录中有候选对象但缺少字段详情时，先用当前数据库适配的元数据查询确认字段，不要猜测对象名称。
 2. 默认使用查询语句回答分析问题。只有用户明确要求修改数据库时，才执行写入或 DDL；不要自行扩大修改范围。
 3. 查询前先识别用户要求的目标指标、筛选对象、统计范围、分组维度和时间范围。筛选对象不是分组维度，不得添加用户未要求的拆分维度。
 4. “X 的次数 / 数量 / 总数 / 多少”默认表示满足 X 条件的总体统计，最终查询应返回单一总计。只有用户明确使用“各、每个、分别、按、分布、占比、排行、趋势、对比”等表达时才分组。
@@ -361,9 +362,7 @@ export async function runAgent(options: {
       schemaStep.error(error instanceof Error ? error.message : '数据库结构读取失败')
       throw error
     }
-    const schemaContext = schemaJson.length > 100_000
-      ? `${schemaJson.slice(0, 100_000)}\n[模型上下文已截断，完整结构仍保存在本地]`
-      : schemaJson
+    const schemaContext = buildSchemaContext(schemaJson, question)
 
     const client = createModelClient(apiKey, baseUrl)
     const messages: ChatCompletionMessageParam[] = [
