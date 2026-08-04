@@ -352,7 +352,7 @@ export function App() {
             />
           )}
           {page === 'funnels' && <FunnelView data={data} onDataChange={refresh} showToast={showToast} />}
-          {page === 'tasks' && <TasksView tasks={data.scheduledTasks ?? []} sources={data.dataSources} modelChannels={data.modelChannels} onDataChange={refresh} showToast={showToast} />}
+          {page === 'tasks' && <TasksView tasks={data.scheduledTasks ?? []} sources={data.dataSources} onOpenQuery={openQueryAtBottom} onDataChange={refresh} showToast={showToast} />}
         </main>
       </section>
 
@@ -1122,6 +1122,7 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
   const [copiedSql, setCopiedSql] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [updatingRunState, setUpdatingRunState] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const sqlSaveControlRef = useRef<HTMLDivElement>(null)
   const chartFields = useMemo(() => inferChartFields(run), [run])
   const chartAvailable = Boolean(chartFields)
@@ -1284,6 +1285,11 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
               <RotateCcw size={17} className={retrying ? 'spin' : ''} />
             </button>
           )}
+          {run.status === 'success' && Boolean(run.sql.trim()) && (
+            <button className="icon-button" onClick={() => setScheduleOpen(true)} aria-label="创建定时任务" title="创建定时任务">
+              <Clock3 size={17} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1364,6 +1370,9 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
           onClose={() => setCardModalData(null)}
           showToast={showToast}
         />
+      )}
+      {scheduleOpen && (
+        <CreateScheduledTaskModal run={run} onClose={() => setScheduleOpen(false)} onDataChange={onDataChange} showToast={showToast} />
       )}
     </article>
   )
@@ -2276,12 +2285,12 @@ function scheduledTaskToInput(task: ScheduledTask): ScheduledTaskInput {
   }
 }
 
-function emptyScheduledTask(dataSourceId: string): ScheduledTaskInput {
+function scheduledTaskFromRun(run: QueryRun): ScheduledTaskInput {
   return {
-    name: '每日经营简报',
-    question: '汇总昨日销售额、订单数和客单价，并列出销售额最高的三个商品',
-    dataSourceId,
-    sql: '',
+    name: (run.chart?.title || run.question || '定时查询').trim().slice(0, 80),
+    question: run.question,
+    dataSourceId: run.dataSourceId,
+    sql: run.sql,
     scheduleKind: 'daily',
     intervalMinutes: 60,
     timeOfDay: '09:00',
@@ -2300,34 +2309,87 @@ function scheduledTaskLabel(task: Pick<ScheduledTaskInput, 'scheduleKind' | 'int
   return `每${weekdays[task.dayOfWeek ?? 1]} ${task.timeOfDay ?? '09:00'}`
 }
 
-function TasksView({ tasks, sources, modelChannels, onDataChange, showToast }: {
-  tasks: ScheduledTask[]
-  sources: DataSource[]
-  modelChannels: ModelChannel[]
+function ScheduleFields({ form, update, disabled = false }: {
+  form: ScheduledTaskInput
+  update: <K extends keyof ScheduledTaskInput>(key: K, value: ScheduledTaskInput[K]) => void
+  disabled?: boolean
+}) {
+  return (
+    <>
+      <div className="field-grid two task-schedule-grid">
+        <div className="field"><span>执行频率</span><SelectControl ariaLabel="执行频率" value={form.scheduleKind} options={[{ value: 'interval', label: '固定间隔' }, { value: 'daily', label: '每天' }, { value: 'weekly', label: '每周' }]} onChange={(value) => update('scheduleKind', value as ScheduledTaskInput['scheduleKind'])} disabled={disabled} /></div>
+        {form.scheduleKind === 'interval' ? (
+          <label className="field"><span>间隔分钟</span><input disabled={disabled} type="number" min={15} max={10080} value={form.intervalMinutes ?? 60} onChange={(event) => update('intervalMinutes', Number(event.target.value))} /></label>
+        ) : (
+          <label className="field"><span>执行时间</span><input disabled={disabled} type="time" value={form.timeOfDay ?? '09:00'} onChange={(event) => update('timeOfDay', event.target.value)} /></label>
+        )}
+      </div>
+      {form.scheduleKind === 'weekly' && <div className="field"><span>执行日期</span><SelectControl ariaLabel="每周执行日期" value={String(form.dayOfWeek ?? 1)} options={['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map((label, value) => ({ value: String(value), label }))} onChange={(value) => update('dayOfWeek', Number(value))} disabled={disabled} /></div>}
+      <button className={`task-enabled-toggle ${form.enabled ? 'active' : ''}`} type="button" aria-pressed={form.enabled} onClick={() => update('enabled', !form.enabled)} disabled={disabled}>
+        <span><i /></span><div><strong>{form.enabled ? '任务已启用' : '任务已暂停'}</strong><small>{form.enabled ? scheduledTaskLabel(form) : '保存配置但不自动执行'}</small></div>
+      </button>
+    </>
+  )
+}
+
+function CreateScheduledTaskModal({ run, onClose, onDataChange, showToast }: {
+  run: QueryRun
+  onClose: () => void
   onDataChange: () => Promise<void>
   showToast: (message: string, tone?: Toast['tone']) => void
 }) {
-  const defaultSource = sources.find((source) => source.type === 'demo') ?? sources[0]
-  const [selectedId, setSelectedId] = useState<string | 'new'>(tasks[0]?.id ?? 'new')
+  const [form, setForm] = useState<ScheduledTaskInput>(() => scheduledTaskFromRun(run))
+  const [saving, setSaving] = useState(false)
+  const update = <K extends keyof ScheduledTaskInput>(key: K, value: ScheduledTaskInput[K]) => setForm((current) => ({ ...current, [key]: value }))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await window.nova.saveScheduledTask(form)
+      await onDataChange()
+      showToast('定时任务已创建')
+      onClose()
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="detail-modal-backdrop" onClick={onClose}>
+      <section className="detail-modal scheduled-task-modal" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title" onClick={(event) => event.stopPropagation()}>
+        <header className="detail-modal-header"><div><h4 id="scheduled-task-modal-title">创建定时任务</h4><span>基于当前已验证结果</span></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X size={16} /></button></header>
+        <div className="scheduled-task-modal-body">
+          <label className="field"><span>任务名称</span><input autoFocus value={form.name} maxLength={80} onChange={(event) => update('name', event.target.value)} /></label>
+          <div className="scheduled-task-origin"><Database size={15} /><div><strong>{run.dataSourceName}</strong><span>{run.question}</span></div></div>
+          <ScheduleFields form={form} update={update} disabled={saving} />
+          <details className="task-query-plan compact-plan"><summary>查看执行 SQL<ChevronDown size={14} /></summary><textarea aria-label="定时任务执行 SQL" value={form.sql} onChange={(event) => update('sql', event.target.value)} rows={6} spellCheck={false} disabled={saving} /></details>
+        </div>
+        <footer className="detail-modal-footer"><button className="secondary-button compact" type="button" onClick={onClose} disabled={saving}>取消</button><button className="primary-button compact" type="button" onClick={() => void save()} disabled={saving || !form.name.trim() || !form.sql.trim()}>{saving ? <LoaderCircle size={14} className="spin" /> : <Clock3 size={14} />}创建任务</button></footer>
+      </section>
+    </div>
+  )
+}
+
+function TasksView({ tasks, sources, onOpenQuery, onDataChange, showToast }: {
+  tasks: ScheduledTask[]
+  sources: DataSource[]
+  onOpenQuery: () => void
+  onDataChange: () => Promise<void>
+  showToast: (message: string, tone?: Toast['tone']) => void
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(tasks[0]?.id ?? null)
   const selected = tasks.find((task) => task.id === selectedId)
-  const [form, setForm] = useState<ScheduledTaskInput>(selected ? scheduledTaskToInput(selected) : emptyScheduledTask(defaultSource?.id ?? ''))
+  const [form, setForm] = useState<ScheduledTaskInput | null>(selected ? scheduledTaskToInput(selected) : null)
   const [saving, setSaving] = useState(false)
   const [running, setRunning] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [generatedRun, setGeneratedRun] = useState<QueryRun | null>(null)
-  const modelOptions = useMemo(() => queryModelOptions(modelChannels), [modelChannels])
-  const [queryModel, setQueryModel] = useState(modelOptions[0]?.value ?? '')
-  const selectedModel = modelOptions.find((option) => option.value === queryModel) ?? modelOptions[0]
 
   useEffect(() => {
-    if (selected) setForm((current) => current.id === selected.id ? current : scheduledTaskToInput(selected))
-    else if (selectedId === 'new') setForm((current) => current.id ? emptyScheduledTask(defaultSource?.id ?? '') : current)
-    setGeneratedRun(null)
-  }, [defaultSource?.id, selected, selectedId])
-
-  useEffect(() => {
-    if (!modelOptions.some((option) => option.value === queryModel)) setQueryModel(modelOptions[0]?.value ?? '')
-  }, [modelOptions, queryModel])
+    if (selected) setForm((current) => current?.id === selected.id ? current : scheduledTaskToInput(selected))
+    else if (tasks[0]) setSelectedId(tasks[0].id)
+    else setForm(null)
+  }, [selected, tasks])
 
   useEffect(() => {
     const timer = window.setInterval(() => void onDataChange(), 30_000)
@@ -2335,45 +2397,11 @@ function TasksView({ tasks, sources, modelChannels, onDataChange, showToast }: {
   }, [onDataChange])
 
   const update = <K extends keyof ScheduledTaskInput>(key: K, value: ScheduledTaskInput[K]) => {
-    setForm((current) => ({
-      ...current,
-      [key]: value,
-      ...((key === 'question' || key === 'dataSourceId') ? { sql: '' } : {}),
-    }))
-    if (key === 'question' || key === 'dataSourceId') setGeneratedRun(null)
-  }
-
-  const generatePlan = async () => {
-    if (!form.dataSourceId || !form.question.trim()) return
-    if (!selectedModel) {
-      showToast('请先添加可用的模型提供商', 'error')
-      return
-    }
-    setGenerating(true)
-    try {
-      const run = await window.nova.ask({
-        queryId: crypto.randomUUID(),
-        question: form.question,
-        dataSourceId: form.dataSourceId,
-        modelChannelId: selectedModel.channelId,
-        model: selectedModel.model,
-      })
-      await onDataChange()
-      if (run.status !== 'success' || !run.sql.trim()) {
-        showToast(run.error ?? '没有生成可执行的查询方案', 'error')
-        return
-      }
-      setGeneratedRun(run)
-      setForm((current) => ({ ...current, sql: run.sql }))
-      showToast('执行方案已生成并验证', 'success')
-    } catch (error) {
-      showToast(errorMessage(error), 'error')
-    } finally {
-      setGenerating(false)
-    }
+    setForm((current) => current ? { ...current, [key]: value } : current)
   }
 
   const save = async () => {
+    if (!form) return
     setSaving(true)
     try {
       const saved = await window.nova.saveScheduledTask(form)
@@ -2405,20 +2433,20 @@ function TasksView({ tasks, sources, modelChannels, onDataChange, showToast }: {
   const remove = async () => {
     if (!selected || !window.confirm(`删除定时任务“${selected.name}”？已生成的查询历史会保留。`)) return
     await window.nova.deleteScheduledTask(selected.id)
-    setSelectedId('new')
-    setForm(emptyScheduledTask(defaultSource?.id ?? ''))
+    const next = tasks.find((task) => task.id !== selected.id)
+    setSelectedId(next?.id ?? null)
+    setForm(next ? scheduledTaskToInput(next) : null)
     await onDataChange()
     showToast('定时任务已删除')
   }
 
-  const valid = Boolean(form.name.trim() && form.question.trim() && form.dataSourceId && form.sql.trim())
+  const valid = Boolean(form?.name.trim() && form.question.trim() && form.dataSourceId && form.sql.trim())
 
   return (
     <div className="sources-layout tasks-layout">
       <section className="source-index">
         <div className="source-index-heading">
           <div><h1>定时</h1><span>{tasks.filter((task) => task.enabled).length} 个运行中</span></div>
-          <button className="icon-button dark" onClick={() => { setSelectedId('new'); setForm(emptyScheduledTask(defaultSource?.id ?? '')) }} aria-label="添加定时任务" title="添加定时任务"><Plus size={17} /></button>
         </div>
         <div className="source-list task-list">
           {tasks.map((task) => (
@@ -2433,54 +2461,16 @@ function TasksView({ tasks, sources, modelChannels, onDataChange, showToast }: {
       </section>
 
       <section className="source-editor">
-        <div className="editor-heading">
-          <div><h2>{selected ? selected.name : '添加定时任务'}</h2>{selected?.nextRunAt && <span>下次运行 {formatTime(selected.nextRunAt)}</span>}</div>
-          {selected && <button className="danger-icon-button" onClick={() => void remove()} aria-label="删除定时任务" title="删除定时任务"><Trash2 size={17} /></button>}
-        </div>
-
-        <form className="source-form task-form" onSubmit={(event) => { event.preventDefault(); void save() }}>
+        {selected && form ? <>
+          <div className="editor-heading">
+            <div><h2>{selected.name}</h2>{selected.nextRunAt && <span>下次运行 {formatTime(selected.nextRunAt)}</span>}</div>
+            <button className="danger-icon-button" onClick={() => void remove()} aria-label="删除定时任务" title="删除定时任务"><Trash2 size={17} /></button>
+          </div>
+          <form className="source-form task-form" onSubmit={(event) => { event.preventDefault(); void save() }}>
           <label className="field"><span>任务名称<i className="required-mark" aria-hidden="true">*</i></span><input autoFocus value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="每日经营简报" /></label>
-
-          <div className="field-grid two">
-            <div className="field"><span>数据源<i className="required-mark" aria-hidden="true">*</i></span><SelectControl ariaLabel="任务数据源" value={form.dataSourceId} options={sources.map((source) => ({ value: source.id, label: source.name, meta: DATABASE_TYPES.find((type) => type.value === source.type)?.label }))} onChange={(value) => update('dataSourceId', value)} /></div>
-            <div className="field"><span>生成模型<i className="required-mark" aria-hidden="true">*</i></span><SelectControl ariaLabel="任务生成模型" value={selectedModel?.value ?? ''} options={modelOptions} placeholder="选择模型" onChange={setQueryModel} /></div>
-          </div>
-
-          <label className="field task-question-field"><span>想定期了解什么？<i className="required-mark" aria-hidden="true">*</i></span><textarea value={form.question} onChange={(event) => update('question', event.target.value)} rows={4} placeholder="例如：汇总昨日销售额、订单数和客单价，并列出销售额最高的三个商品" /></label>
-
-          <div className="task-generate-row">
-            <button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={generating || !form.dataSourceId || !form.question.trim() || !selectedModel}>
-              {generating ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}{generating ? '正在生成并验证' : form.sql.trim() ? '重新生成执行方案' : '生成并验证执行方案'}
-            </button>
-            <span>Nova 会先实际查询一次，确认方案可用后再交给定时器</span>
-          </div>
-
-          {form.sql.trim() && (
-            <div className="task-query-plan">
-              <div><Check size={16} /><span><strong>执行方案已准备</strong><small>{generatedRun?.table ? `验证返回 ${generatedRun.table.rows.length}${generatedRun.table.truncated ? '+' : ''} 行` : '保存后将按下方频率自动运行'}</small></span></div>
-              <details>
-                <summary>查看生成的 SQL<ChevronDown size={14} /></summary>
-                <textarea aria-label="定时任务执行 SQL" value={form.sql} onChange={(event) => update('sql', event.target.value)} rows={7} spellCheck={false} />
-              </details>
-            </div>
-          )}
-
-          <div className="field-grid two task-schedule-grid">
-            <div className="field"><span>执行频率</span><SelectControl ariaLabel="执行频率" value={form.scheduleKind} options={[{ value: 'interval', label: '固定间隔' }, { value: 'daily', label: '每天' }, { value: 'weekly', label: '每周' }]} onChange={(value) => update('scheduleKind', value as ScheduledTaskInput['scheduleKind'])} /></div>
-            {form.scheduleKind === 'interval' ? (
-              <label className="field"><span>间隔分钟</span><input type="number" min={15} max={10080} value={form.intervalMinutes ?? 60} onChange={(event) => update('intervalMinutes', Number(event.target.value))} /></label>
-            ) : (
-              <label className="field"><span>执行时间</span><input type="time" value={form.timeOfDay ?? '09:00'} onChange={(event) => update('timeOfDay', event.target.value)} /></label>
-            )}
-          </div>
-
-          {form.scheduleKind === 'weekly' && <div className="field"><span>执行日期</span><SelectControl ariaLabel="每周执行日期" value={String(form.dayOfWeek ?? 1)} options={['周日', '周一', '周二', '周三', '周四', '周五', '周六'].map((label, value) => ({ value: String(value), label }))} onChange={(value) => update('dayOfWeek', Number(value))} /></div>}
-
-          <div className="database-permission-note"><CircleAlert size={16} /><div><strong>自动执行会使用当前数据库权限</strong><span>生产数据源建议使用只读账号，并先通过“立即运行”核对结果</span></div></div>
-
-          <button className={`task-enabled-toggle ${form.enabled ? 'active' : ''}`} type="button" aria-pressed={form.enabled} onClick={() => update('enabled', !form.enabled)}>
-            <span><i /></span><div><strong>{form.enabled ? '任务已启用' : '任务已暂停'}</strong><small>{form.enabled ? scheduledTaskLabel(form) : '保存配置但不自动执行'}</small></div>
-          </button>
+          <div className="scheduled-task-origin"><Database size={15} /><div><strong>{sources.find((source) => source.id === form.dataSourceId)?.name ?? selected.dataSourceName}</strong><span>{form.question}</span></div></div>
+          <ScheduleFields form={form} update={update} disabled={saving || running} />
+          <details className="task-query-plan compact-plan"><summary>查看执行 SQL<ChevronDown size={14} /></summary><textarea aria-label="定时任务执行 SQL" value={form.sql} onChange={(event) => update('sql', event.target.value)} rows={7} spellCheck={false} /></details>
 
           {selected?.lastRunAt && (
             <div className={`task-last-run ${selected.lastStatus === 'error' ? 'error' : ''}`}>
@@ -2489,10 +2479,11 @@ function TasksView({ tasks, sources, modelChannels, onDataChange, showToast }: {
           )}
 
           <div className="form-actions">
-            {selected && <button className="secondary-button" type="button" onClick={() => void runNow()} disabled={running || saving}>{running ? <LoaderCircle size={16} className="spin" /> : <RotateCcw size={16} />}立即运行</button>}
+            <button className="secondary-button" type="button" onClick={() => void runNow()} disabled={running || saving}>{running ? <LoaderCircle size={16} className="spin" /> : <RotateCcw size={16} />}立即运行</button>
             <button className="primary-button" type="submit" disabled={saving || running || !valid}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存任务</button>
           </div>
-        </form>
+          </form>
+        </> : <div className="task-empty-detail"><Clock3 size={28} /><strong>从查询结果创建定时任务</strong><span>运行一次查询并确认结果后，在结果卡片右上角点击时钟图标。</span><button className="primary-button" type="button" onClick={onOpenQuery}><Search size={16} />去查询</button></div>}
       </section>
     </div>
   )
