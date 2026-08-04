@@ -261,6 +261,7 @@ export interface BootstrapData {
 export interface AskInput {
   queryId: string
   question: string
+  displayQuestion?: string
   dataSourceId: string
   modelChannelId: string
   model: string

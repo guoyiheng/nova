@@ -91,6 +91,7 @@ const modelChannelSchema = z.object({
 const askSchema = z.object({
   queryId: z.string().uuid(),
   question: z.string().trim().min(2).max(4000),
+  displayQuestion: z.string().trim().min(1).max(4000).optional(),
   dataSourceId: z.string().uuid(),
   modelChannelId: z.string().uuid(),
   model: z.string().trim().min(1).max(200),
@@ -462,7 +463,7 @@ function registerIpc() {
       const schemaCache = storage.getSchemaCacheRecord(source.id)
       const result = await runAgent({
         queryId: input.queryId,
-        question: input.question,
+        question: input.displayQuestion ?? input.question,
         source,
         password: storage.getDataSourceSecret(source.id),
         apiKey,
@@ -480,7 +481,7 @@ function registerIpc() {
       return storage.saveQueryRun({
         dataSourceId: source.id,
         dataSourceName: source.name,
-        question: input.question,
+        question: input.displayQuestion ?? input.question,
         answer: result.answer,
         sql: result.sql,
         table: result.table,

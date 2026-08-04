@@ -3066,6 +3066,37 @@ summary:focus-visible {
   gap: 18px;
 }
 
+.funnel-auto-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-block: 1px solid var(--rule);
+  padding: 13px 0;
+  color: var(--accent-dark);
+}
+
+.funnel-auto-note>svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.funnel-auto-note>div {
+  display: grid;
+  gap: 2px;
+}
+
+.funnel-auto-note strong {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.funnel-auto-note span,
+.funnel-steps-field small {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
 .funnel-steps-field textarea {
   width: 100%;
   min-height: 132px;
