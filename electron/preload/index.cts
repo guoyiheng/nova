@@ -11,6 +11,7 @@ const api: NovaApi = {
   getSchemaCacheInfo: (dataSourceId: string) => ipcRenderer.invoke('nova:schema-cache:get', dataSourceId),
   getSchemaCacheStructure: (dataSourceId: string) => ipcRenderer.invoke('nova:schema-cache:structure', dataSourceId),
   rebuildSchemaCache: (dataSourceId: string) => ipcRenderer.invoke('nova:schema-cache:rebuild', dataSourceId),
+  resetDemoDatabase: (dataSourceId: string) => ipcRenderer.invoke('nova:demo:reset', dataSourceId),
   saveModelChannel: (input: ModelChannelInput) => ipcRenderer.invoke('nova:model-channel:save', input),
   deleteModelChannel: (id: string) => ipcRenderer.invoke('nova:model-channel:delete', id),
   listModels: (input: ModelListInput) => ipcRenderer.invoke('nova:model:list', input),

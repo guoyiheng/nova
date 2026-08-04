@@ -116,6 +116,21 @@ import { MarkdownAnswer } from './MarkdownAnswer'
 
 type SettingsSectionId = 'migration' | 'about'
 
+const DEMO_SQL_EXAMPLES = [
+  {
+    label: '近 30 天销售趋势',
+    sql: "SELECT date(order_date) AS 日期, ROUND(SUM(total_amount), 2) AS 销售额 FROM orders WHERE status = '已完成' AND order_date >= datetime('now', '-30 days') GROUP BY date(order_date) ORDER BY 日期;",
+  },
+  {
+    label: '最畅销的商品',
+    sql: "SELECT p.name AS 商品, SUM(oi.quantity) AS 销量, ROUND(SUM(oi.quantity * oi.unit_price), 2) AS 销售额 FROM order_items oi JOIN products p ON p.id = oi.product_id JOIN orders o ON o.id = oi.order_id WHERE o.status = '已完成' GROUP BY p.id, p.name ORDER BY 销售额 DESC LIMIT 5;",
+  },
+  {
+    label: '查看转化漏斗',
+    sql: "SELECT event_name AS 阶段, COUNT(DISTINCT visitor_id) AS 用户数 FROM funnel_events GROUP BY event_name ORDER BY CASE event_name WHEN '访问网站' THEN 1 WHEN '浏览商品' THEN 2 WHEN '加入购物车' THEN 3 WHEN '开始结算' THEN 4 WHEN '完成购买' THEN 5 END;",
+  },
+]
+
 function AppLoading() {
   return (
     <div className="app-loading">
@@ -524,6 +539,10 @@ function QueryView({ data, activeSource, onSourceChange, onOpenSources, onOpenMo
   const needsInitialSetup = data.dataSources.length === 0 && modelOptions.length === 0
 
   useEffect(() => {
+    if (activeSource?.type === 'demo' && modelOptions.length === 0 && queryMode === 'smart') setQueryMode('sql')
+  }, [activeSource?.type, modelOptions.length, queryMode])
+
+  useEffect(() => {
     if (!selectedModel || selectedModel.value === selectedModelValue) return
     setSelectedModelValue(selectedModel.value)
   }, [selectedModel, selectedModelValue])
@@ -778,6 +797,17 @@ function QueryView({ data, activeSource, onSourceChange, onOpenSources, onOpenMo
               />
             ))}
             {pendingQueries.map((query) => <PendingRunCard key={query.id} query={query} />)}
+          </div>
+        ) : activeSource?.type === 'demo' ? (
+          <div className="empty-query demo-query-empty">
+            <Database size={26} />
+            <p>示例商店已就绪</p>
+            <span>客户、商品、订单与转化事件可直接查询</span>
+            <div className="demo-query-examples">
+              {DEMO_SQL_EXAMPLES.map((example) => (
+                <button key={example.label} onClick={() => { setQueryMode('sql'); setSqlText(example.sql); setTimeout(() => textareaRef.current?.focus(), 0) }}>{example.label}</button>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="empty-query">
@@ -1825,6 +1855,7 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
 }
 
 function isDataSourceFormComplete(form: DataSourceInput) {
+  if (form.type === 'demo') return true
   if (form.type === 'sqlite') return Boolean(form.filePath?.trim())
   return Boolean(form.host?.trim() && form.port && form.database?.trim() && form.username?.trim())
 }
@@ -1853,14 +1884,24 @@ function DataSourceFields({ form, setForm, onChooseFile, passwordPlaceholder = '
             onChange={(value) => {
               const type = value as DatabaseType
               const port = DATABASE_TYPES.find((item) => item.value === type)?.port ?? null
-              setForm((current) => ({ ...current, type, port }))
+              setForm((current) => ({
+                ...current,
+                type,
+                port,
+                name: type === 'demo' && current.name === '默认数据源' ? 'Nova 示例商店' : current.name,
+              }))
             }}
             disabled={disabled}
           />
         </div>
       </div>
 
-      {form.type === 'sqlite' ? (
+      {form.type === 'demo' ? (
+        <div className="demo-source-summary">
+          <Database size={19} />
+          <div><strong>内置电商示例数据</strong><span>36 位客户 · 144 笔订单 · 8 件商品 · 访问到购买事件链</span></div>
+        </div>
+      ) : form.type === 'sqlite' ? (
         <label className="field"><span>数据库文件<i className="required-mark" aria-hidden="true">*</i></span><div className="input-action"><input required disabled={disabled} value={form.filePath} onChange={(event) => update('filePath', event.target.value)} placeholder="/path/to/database.sqlite" /><button type="button" disabled={disabled} onClick={onChooseFile} aria-label="选择数据库文件" title="选择数据库文件"><FolderOpen size={17} /></button></div></label>
       ) : (
         <>
@@ -1891,10 +1932,11 @@ function DataSourceFields({ form, setForm, onChooseFile, passwordPlaceholder = '
           </div>
         </>
       )}
-      <div className="database-permission-note">
-        <CircleAlert size={16} />
-        <div><strong>请确认用户权限并谨慎操作</strong><span>Nova 使用当前连接账号的数据库权限执行查询</span></div>
-      </div>
+      {form.type === 'demo' ? (
+        <div className="database-permission-note demo-note"><Info size={16} /><div><strong>独立示例环境</strong><span>查询和修改只会作用于本机示例数据库</span></div></div>
+      ) : (
+        <div className="database-permission-note"><CircleAlert size={16} /><div><strong>请确认用户权限并谨慎操作</strong><span>Nova 使用当前连接账号的数据库权限执行查询</span></div></div>
+      )}
     </>
   )
 }
@@ -2069,6 +2111,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
   const [connectionUrl, setConnectionUrl] = useState('')
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [resettingDemo, setResettingDemo] = useState(false)
   const [schemaCache, setSchemaCache] = useState<SchemaCacheInfo | null>(null)
   const [loadingSchemaCache, setLoadingSchemaCache] = useState(false)
   const [rebuildingSchemaCache, setRebuildingSchemaCache] = useState(false)
@@ -2197,6 +2240,22 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
     }
   }
 
+  const resetDemo = async () => {
+    if (!selected || selected.type !== 'demo' || !window.confirm('恢复示例数据库的初始内容？已做的修改将被替换。')) return
+    setResettingDemo(true)
+    try {
+      await window.nova.resetDemoDatabase(selected.id)
+      setSchemaCache(null)
+      setSchemaStructure(null)
+      await onDataChange()
+      showToast('示例数据已恢复')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setResettingDemo(false)
+    }
+  }
+
   const remove = async () => {
     if (!selected || !window.confirm(`删除数据源“${selected.name}”？历史查询仍会保留。`)) return
     await window.nova.deleteDataSource(selected.id)
@@ -2234,7 +2293,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
           {sources.map((source) => (
             <button key={source.id} className={`source-item ${selectedId === source.id ? 'active' : ''}`} onClick={() => { setForm(sourceToInput(source)); setSelectedId(source.id) }}>
               <DatabaseGlyph type={source.type} />
-              <span><strong>{source.name}</strong><small>{source.type === 'sqlite' ? source.filePath : `${source.host}:${source.port}`}</small></span>
+              <span><strong>{source.name}</strong><small>{source.type === 'demo' ? '内置示例数据' : source.type === 'sqlite' ? source.filePath : `${source.host}:${source.port}`}</small></span>
               <i className={`status-dot ${source.status}`} />
               {source.id === activeSourceId && <span className="active-label">当前</span>}
             </button>
@@ -2293,6 +2352,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
                 disabled={saving}
               />
               <div className="form-actions">
+                {selected?.type === 'demo' && <button className="secondary-button" type="button" onClick={() => void resetDemo()} disabled={resettingDemo || testing || saving}>{resettingDemo ? <LoaderCircle size={16} className="spin" /> : <RotateCcw size={16} />}恢复示例数据</button>}
                 <button className="secondary-button" type="button" onClick={() => void test()} disabled={testing || saving || !isDataSourceFormComplete(form)}>{testing ? <LoaderCircle size={16} className="spin" /> : <Database size={16} />}测试连接</button>
                 <button className="primary-button" type="submit" disabled={saving || testing || !isDataSourceFormComplete(form)}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存数据源</button>
               </div>
@@ -2410,7 +2470,7 @@ function sourceToInput(source: DataSource): DataSourceInput {
 }
 
 function DatabaseGlyph({ type }: { type: DatabaseType }) {
-  return <span className={`database-glyph db-${type}`}>{type === 'postgres' ? 'PG' : type === 'sqlserver' ? 'MS' : type === 'mariadb' ? 'MA' : type === 'sqlite' ? 'SQ' : 'MY'}</span>
+  return <span className={`database-glyph db-${type}`}>{type === 'postgres' ? 'PG' : type === 'sqlserver' ? 'MS' : type === 'mariadb' ? 'MA' : type === 'sqlite' ? 'SQ' : type === 'demo' ? 'DE' : 'MY'}</span>
 }
 
 function modelChannelToInput(channel: ModelChannel): ModelChannelInput {

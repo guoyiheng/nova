@@ -60,6 +60,7 @@ export function savedSqlForSource(items: SavedSql[], dataSourceId: string, searc
 }
 
 export const DATABASE_TYPES: Array<{ value: DatabaseType; label: string; port: number | null }> = [
+  { value: 'demo', label: 'Nova 示例商店', port: null },
   { value: 'postgres', label: 'PostgreSQL', port: 5432 },
   { value: 'mysql', label: 'MySQL', port: 3306 },
   { value: 'mariadb', label: 'MariaDB', port: 3306 },

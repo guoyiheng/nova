@@ -264,6 +264,7 @@ export interface NovaApi {
   getSchemaCacheInfo: (dataSourceId: string) => Promise<SchemaCacheInfo>
   getSchemaCacheStructure: (dataSourceId: string) => Promise<SchemaCacheStructure>
   rebuildSchemaCache: (dataSourceId: string) => Promise<SchemaCacheInfo>
+  resetDemoDatabase: (dataSourceId: string) => Promise<void>
   saveModelChannel: (input: ModelChannelInput) => Promise<ModelChannel>
   deleteModelChannel: (id: string) => Promise<void>
   listModels: (input: ModelListInput) => Promise<string[]>

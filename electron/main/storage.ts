@@ -617,6 +617,7 @@ export class Storage {
       exportedAt: new Date().toISOString(),
       dataSources: sources.map(({ id, hasPassword: _hasPassword, status: _status, lastTestedAt: _lastTestedAt, createdAt: _createdAt, updatedAt: _updatedAt, ...source }) => ({
         ...source,
+        filePath: source.type === 'demo' ? '' : source.filePath,
         password: this.getDataSourceSecret(id),
       })),
       modelChannels: this.listModelChannels().map(({ id, hasApiKey: _hasApiKey, createdAt: _createdAt, updatedAt: _updatedAt, ...channel }) => ({

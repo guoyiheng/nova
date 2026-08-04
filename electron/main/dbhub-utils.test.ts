@@ -34,6 +34,12 @@ describe('buildDsn', () => {
     expect(buildDsn({ name: 'Local', type: 'sqlite', filePath: databasePath }, '')).toBe(expectedDsn)
   })
 
+  it('uses the persistent bundled demo database path', () => {
+    const databasePath = path.resolve('tmp', 'nova-demo.sqlite')
+    expect(buildDsn({ name: 'Demo', type: 'demo', filePath: databasePath }, ''))
+      .toBe(sqliteDsnFromAbsolutePath(databasePath))
+  })
+
   it('normalizes Windows separators in SQLite DSNs', () => {
     expect(sqliteDsnFromAbsolutePath('D:\\data\\nova.db')).toBe('sqlite:///D:/data/nova.db')
   })

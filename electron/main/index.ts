@@ -7,6 +7,7 @@ import { describeConnection, describeProgressError, describeQueryResult, describ
 import { buildDsn, DbhubSession, executeSql, loadSchemaSnapshot } from './dbhub.js'
 import { changesSchemaSql } from './dbhub-utils.js'
 import { Storage, uniqueImportedName } from './storage.js'
+import { ensureDemoDatabase, resetDemoDatabase } from './demo-database.js'
 import { fetchModelIds } from './models.js'
 import { checkAppUpdate, downloadAppUpdate, openDownloadedUpdate } from './updater.js'
 import { RendererUpdater } from './renderer-updater.js'
@@ -129,6 +130,25 @@ const portableModelChannelSchema = modelChannelSchema.omit({ id: true }).extend(
   apiKey: z.string().max(4096).optional(),
 })
 
+function demoDatabasePath() {
+  return path.join(app.getPath('userData'), 'nova-demo.sqlite')
+}
+
+function prepareDataSourceInput(input: DataSourceInput): DataSourceInput {
+  if (input.type !== 'demo') return input
+  return {
+    ...input,
+    name: input.name.trim() || 'Nova 示例商店',
+    host: '',
+    port: null,
+    database: 'nova_demo',
+    username: '',
+    password: '',
+    sslMode: 'disable',
+    filePath: demoDatabasePath(),
+  }
+}
+
 function executionSummary(table: QueryTable) {
   return table.affectedRows !== undefined
     ? `影响 ${table.affectedRows} 行`
@@ -212,7 +232,15 @@ function registerIpc() {
   ipcMain.handle('nova:bootstrap', () => ({ ...storage.bootstrap(), appVersion: app.getVersion() }))
 
   ipcMain.handle('nova:data-source:save', (_event, payload) => {
-    return storage.saveDataSource(dataSourceSchema.parse(payload))
+    const input = prepareDataSourceInput(dataSourceSchema.parse(payload))
+    const existingDemo = input.type === 'demo' && !input.id
+      ? storage.listDataSources().find((source) => source.type === 'demo')
+      : undefined
+    if (existingDemo) {
+      storage.setActiveDataSource(existingDemo.id)
+      return existingDemo
+    }
+    return storage.saveDataSource(input)
   })
 
   ipcMain.handle('nova:data-source:delete', (_event, id: string) => {
@@ -257,8 +285,17 @@ function registerIpc() {
     }
   })
 
+  ipcMain.handle('nova:demo:reset', (_event, id: string) => {
+    const dataSourceId = z.string().uuid().parse(id)
+    const source = storage.getDataSource(dataSourceId)
+    if (!source || source.type !== 'demo') throw new Error('演示数据源不存在。')
+    resetDemoDatabase(demoDatabasePath())
+    storage.clearSchemaCache(source.id)
+    storage.updateDataSourceStatus(source.id, 'connected')
+  })
+
   ipcMain.handle('nova:data-source:test', async (_event, payload) => {
-    const input = dataSourceSchema.parse(payload) as DataSourceInput
+    const input = prepareDataSourceInput(dataSourceSchema.parse(payload) as DataSourceInput)
     const password = input.password || (input.id ? storage.getDataSourceSecret(input.id) : '')
     const session = new DbhubSession()
     try {
@@ -306,7 +343,7 @@ function registerIpc() {
       dataSource: dataSourceSchema,
       modelChannel: modelChannelSchema,
     }).parse(payload)
-    return storage.completeInitialSetup(input.dataSource, input.modelChannel)
+    return storage.completeInitialSetup(prepareDataSourceInput(input.dataSource), input.modelChannel)
   })
 
   ipcMain.handle('nova:agent:ask', async (event, payload) => {
@@ -551,7 +588,7 @@ function registerIpc() {
       ? storage.importModelChannels(parsed.modelChannels)
       : legacyModel ? storage.importModelSettings(legacyModel) : { imported: 0, skipped: 0 }
     const favoriteRuns = 'favoriteRuns' in parsed ? parsed.favoriteRuns : []
-    const summary = storage.importConfiguration(parsed.dataSources, parsed.version === 1 ? [] : parsed.savedSql, favoriteRuns)
+    const summary = storage.importConfiguration(parsed.dataSources.map(prepareDataSourceInput), parsed.version === 1 ? [] : parsed.savedSql, favoriteRuns)
     return { canceled: false, summary: { ...summary, modelChannelsImported: modelResult.imported, modelChannelsSkipped: modelResult.skipped } }
   })
 
@@ -659,7 +696,12 @@ app.whenReady().then(async () => {
   })
   await rendererUpdater.initialize()
   protocol.handle('nova', rendererProtocolResponse)
+  ensureDemoDatabase(demoDatabasePath())
   storage = new Storage(path.join(app.getPath('userData'), 'nova.sqlite'))
+  if (storage.listDataSources().length === 0) {
+    const demoSource = storage.saveDataSource(prepareDataSourceInput({ name: 'Nova 示例商店', type: 'demo' }))
+    storage.updateDataSourceStatus(demoSource.id, 'connected')
+  }
   registerIpc()
   createWindow()
 

@@ -21,7 +21,11 @@ export function sqliteDsnFromAbsolutePath(absolutePath: string): string {
 }
 
 export function buildDsn(source: DataSource | DataSourceInput, password: string): string {
-  if (source.type === 'demo') return 'sqlite:///:memory:'
+  if (source.type === 'demo') {
+    const filePath = source.filePath?.trim()
+    if (!filePath) throw new Error('演示数据库文件不可用。')
+    return sqliteDsnFromAbsolutePath(path.resolve(filePath))
+  }
   if (source.type === 'sqlite') {
     const filePath = source.filePath?.trim()
     if (!filePath) throw new Error('请选择 SQLite 数据库文件。')
