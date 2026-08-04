@@ -134,6 +134,27 @@ const scheduledTaskSchema = z.object({
   enabled: z.boolean(),
 })
 
+const dashboardCardSchema = z.object({
+  id: z.string().min(1).max(100),
+  queryRunId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+  view: z.enum(['chart', 'table', 'metric']),
+  width: z.enum(['half', 'full']),
+})
+
+const dashboardSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().max(240).optional(),
+  cards: z.array(dashboardCardSchema).max(24),
+})
+
+const dashboardExportSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  format: z.enum(['html', 'png']),
+  data: z.string().max(50_000_000),
+})
+
 const portableSavedSqlSchema = z.object({
   dataSourceName: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(80),
@@ -580,6 +601,35 @@ function registerIpc() {
     const task = storage.getScheduledTask(z.string().uuid().parse(id))
     if (!task) throw new Error('定时任务不存在。')
     return executeScheduledTask(task)
+  })
+
+  ipcMain.handle('nova:dashboard:save', (_event, payload) => {
+    return storage.saveDashboard(dashboardSchema.parse(payload))
+  })
+
+  ipcMain.handle('nova:dashboard:delete', (_event, id: string) => {
+    storage.deleteDashboard(z.string().uuid().parse(id))
+  })
+
+  ipcMain.handle('nova:dashboard:export', async (_event, payload) => {
+    const input = dashboardExportSchema.parse(payload)
+    const safeName = input.name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'Nova 看板'
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: input.format === 'html' ? '导出 HTML 看板' : '导出看板图片',
+      defaultPath: `${safeName}.${input.format}`,
+      filters: input.format === 'html'
+        ? [{ name: 'HTML 文件', extensions: ['html'] }]
+        : [{ name: 'PNG 图片', extensions: ['png'] }],
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    if (input.format === 'png') {
+      const match = input.data.match(/^data:image\/png;base64,(.+)$/)
+      if (!match) throw new Error('看板图片数据无效。')
+      await writeFile(result.filePath, Buffer.from(match[1]!, 'base64'))
+    } else {
+      await writeFile(result.filePath, input.data, 'utf8')
+    }
+    return { canceled: false, filePath: result.filePath }
   })
 
   ipcMain.handle('nova:query:update', (_event, id: string, patch) => {

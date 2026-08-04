@@ -54,6 +54,26 @@ describe('portable configuration', () => {
     expect(sourceStorage.listScheduledTasks()).toEqual([])
   })
 
+  it('persists ordered dashboard cards', () => {
+    const dashboard = sourceStorage.saveDashboard({
+      name: '经营看板',
+      description: '每日核心指标',
+      cards: [
+        { id: 'card-a', queryRunId: 'run-a', title: '销售额', view: 'metric', width: 'half' },
+        { id: 'card-b', queryRunId: 'run-b', title: '销售趋势', view: 'chart', width: 'full' },
+      ],
+    })
+    expect(sourceStorage.bootstrap().dashboards[0]).toEqual(dashboard)
+
+    const updated = sourceStorage.saveDashboard({
+      id: dashboard.id,
+      name: dashboard.name,
+      description: dashboard.description,
+      cards: [...dashboard.cards].reverse(),
+    })
+    expect(updated.cards.map((card) => card.id)).toEqual(['card-b', 'card-a'])
+  })
+
   it('exports data sources, model channels and saved SQL with credentials', () => {
     const source = sourceStorage.saveDataSource({
       name: 'Analytics',
@@ -270,7 +290,7 @@ describe('portable configuration', () => {
     }
   })
 
-  it('removes legacy dashboard storage without deleting query history', () => {
+  it('replaces legacy dashboard storage without deleting query history', () => {
     const directory = mkdtempSync(join(tmpdir(), 'nova-dashboard-migration-'))
     const databasePath = join(directory, 'nova.sqlite')
     const legacyDatabase = new DatabaseSync(databasePath)
@@ -316,7 +336,16 @@ describe('portable configuration', () => {
       expect(migratedStorage.getQueryRun('run-1')).toMatchObject({ question: 'Count orders', isFavorite: true })
       migratedStorage.close()
       const migratedDatabase = new DatabaseSync(databasePath)
-      expect(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'dashboards'").get()).toBeUndefined()
+      const dashboardColumns = migratedDatabase.prepare('PRAGMA table_info(dashboards)').all() as unknown as Array<{ name: string }>
+      expect(dashboardColumns.map((column) => column.name)).toEqual([
+        'id',
+        'name',
+        'description',
+        'cards_json',
+        'created_at',
+        'updated_at',
+      ])
+      expect(migratedDatabase.prepare('SELECT COUNT(*) AS count FROM dashboards').get()).toEqual({ count: 0 })
       expect(migratedDatabase.prepare('PRAGMA table_info(query_runs)').all()).not.toContainEqual(expect.objectContaining({ name: 'dashboard_id' }))
       migratedDatabase.close()
     } finally {

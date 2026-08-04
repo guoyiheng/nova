@@ -212,6 +212,39 @@ export interface ScheduledTaskInput {
   enabled: boolean
 }
 
+export type DashboardCardView = 'chart' | 'table' | 'metric'
+export type DashboardCardWidth = 'half' | 'full'
+
+export interface DashboardCard {
+  id: string
+  queryRunId: string
+  title: string
+  view: DashboardCardView
+  width: DashboardCardWidth
+}
+
+export interface Dashboard {
+  id: string
+  name: string
+  description: string
+  cards: DashboardCard[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DashboardInput {
+  id?: string
+  name: string
+  description?: string
+  cards: DashboardCard[]
+}
+
+export interface DashboardExportInput {
+  name: string
+  format: 'html' | 'png'
+  data: string
+}
+
 export interface BootstrapData {
   appVersion: string
   dataSources: DataSource[]
@@ -220,6 +253,7 @@ export interface BootstrapData {
   savedSql: SavedSql[]
   modelChannels: ModelChannel[]
   scheduledTasks: ScheduledTask[]
+  dashboards: Dashboard[]
 }
 
 export interface AskInput {
@@ -312,6 +346,9 @@ export interface NovaApi {
   saveScheduledTask: (input: ScheduledTaskInput) => Promise<ScheduledTask>
   deleteScheduledTask: (id: string) => Promise<void>
   runScheduledTask: (id: string) => Promise<ScheduledTask>
+  saveDashboard: (input: DashboardInput) => Promise<Dashboard>
+  deleteDashboard: (id: string) => Promise<void>
+  saveDashboardExport: (input: DashboardExportInput) => Promise<{ canceled: boolean; filePath?: string }>
   updateQueryRun: (id: string, patch: { isFavorite?: boolean; isPinned?: boolean; chart?: ChartSpec | null }) => Promise<QueryRun>
   exportConfig: () => Promise<{ canceled: boolean; filePath?: string }>
   importConfig: () => Promise<{ canceled: boolean; summary?: ImportSummary }>

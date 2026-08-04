@@ -20,9 +20,11 @@ import {
   FileCode2,
   FolderOpen,
   GitMerge,
+  GripVertical,
   History,
   Import,
   Info,
+  LayoutDashboard,
   ListFilter,
   LoaderCircle,
   Maximize2,
@@ -41,6 +43,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import { toPng, toSvg } from 'html-to-image'
 import {
   Bar,
   BarChart,
@@ -70,6 +73,9 @@ import type {
   DataSource,
   DataSourceInput,
   DatabaseType,
+  Dashboard,
+  DashboardCard,
+  DashboardInput,
   ModelChannel,
   ModelChannelInput,
   QueryRun,
@@ -300,6 +306,7 @@ export function App() {
 
         <nav className="primary-nav" aria-label="主导航">
           <NavButton active={page === 'query'} label="查询" icon={Search} onClick={() => setPage('query')} />
+          <NavButton active={page === 'dashboards'} label="看板" icon={LayoutDashboard} onClick={() => setPage('dashboards')} />
           <NavButton active={page === 'funnels'} label="漏斗" icon={GitMerge} onClick={() => setPage('funnels')} />
           <NavButton active={page === 'tasks'} label="定时" icon={Clock3} onClick={() => setPage('tasks')} />
           <NavButton active={page === 'history'} label="历史" icon={History} onClick={() => setPage('history')} />
@@ -325,6 +332,7 @@ export function App() {
               showToast={showToast}
             />
           )}
+          {page === 'dashboards' && <DashboardsView dashboards={data.dashboards ?? []} runs={data.queryRuns} onDataChange={refresh} showToast={showToast} />}
           {page === 'history' && (
             <HistoryView
               runs={data.queryRuns}
@@ -1349,11 +1357,12 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
   )
 }
 
-function ResultChart({ run, type, fields, onTypeChange }: {
+function ResultChart({ run, type, fields, onTypeChange, readonly = false }: {
   run: QueryRun
   type: ResultChartType
   fields: ChartFields
   onTypeChange: (type: ResultChartType) => void
+  readonly?: boolean
 }) {
   if (!run.table) return null
   const limit = type === 'pie' || type === 'radar' || type === 'funnel' ? 12 : 24
@@ -1389,7 +1398,7 @@ function ResultChart({ run, type, fields, onTypeChange }: {
 
   return (
     <div className="chart-wrap">
-      <div className="chart-toolbar">
+      {!readonly && <div className="chart-toolbar">
         {run.chart?.title && <div className="chart-title">{run.chart.title}</div>}
         <SelectControl
           className="chart-type-select"
@@ -1398,7 +1407,7 @@ function ResultChart({ run, type, fields, onTypeChange }: {
           options={CHART_TYPE_OPTIONS}
           onChange={(value) => onTypeChange(value as ResultChartType)}
         />
-      </div>
+      </div>}
       {type === 'heatmap' ? (
         <ResultHeatmap run={run} fields={fields} />
       ) : type === 'funnel' ? (
@@ -1812,6 +1821,249 @@ function ResultJson({ run, showToast }: { run: QueryRun; showToast?: (message: s
         expandAllSignal={expandAllSignal}
         collapseAllSignal={collapseAllSignal}
       />
+    </div>
+  )
+}
+
+function dashboardToInput(dashboard: Dashboard): DashboardInput {
+  return {
+    id: dashboard.id,
+    name: dashboard.name,
+    description: dashboard.description,
+    cards: dashboard.cards,
+  }
+}
+
+function emptyDashboard(): DashboardInput {
+  return { name: '经营看板', description: '', cards: [] }
+}
+
+function htmlAttribute(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function DashboardCardContent({ card, run }: { card: DashboardCard; run: QueryRun | undefined }) {
+  if (!run?.table?.rows.length) return <div className="dashboard-card-empty"><CircleAlert size={18} /><span>原查询结果不可用</span></div>
+  const fields = inferChartFields(run)
+  if (card.view === 'metric' && fields) {
+    const value = numericValue(run.table.rows[0]?.[fields.yKey])
+    return (
+      <div className="dashboard-metric">
+        <strong>{value === null ? String(run.table.rows[0]?.[fields.yKey] ?? '—') : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value)}</strong>
+        <span>{fields.yKey}</span>
+        {run.table.rows[0]?.[fields.categoryKey] !== undefined && fields.categoryKey !== fields.yKey && <small>{String(run.table.rows[0]?.[fields.categoryKey])}</small>}
+      </div>
+    )
+  }
+  if (card.view === 'chart' && fields) {
+    return <ResultChart run={run} type={inferBestChartType(run)} fields={fields} onTypeChange={() => undefined} readonly />
+  }
+  const columns = run.table.columns.slice(0, 6)
+  return (
+    <div className="dashboard-mini-table">
+      <table>
+        <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+        <tbody>{run.table.rows.slice(0, 8).map((row, index) => <tr key={index}>{columns.map((column) => <td key={column}>{String(row[column] ?? '—')}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  )
+}
+
+function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
+  dashboards: Dashboard[]
+  runs: QueryRun[]
+  onDataChange: () => Promise<void>
+  showToast: (message: string, tone?: Toast['tone']) => void
+}) {
+  const [selectedId, setSelectedId] = useState<string | 'new'>(dashboards[0]?.id ?? 'new')
+  const selected = dashboards.find((dashboard) => dashboard.id === selectedId)
+  const [form, setForm] = useState<DashboardInput>(selected ? dashboardToInput(selected) : emptyDashboard())
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [librarySearch, setLibrarySearch] = useState('')
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [exporting, setExporting] = useState<'html' | 'png' | null>(null)
+  const exportRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (selected) setForm((current) => current.id === selected.id ? current : dashboardToInput(selected))
+    else if (selectedId === 'new') setForm((current) => current.id ? emptyDashboard() : current)
+  }, [selected, selectedId])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const saved = await window.nova.saveDashboard(form)
+      setSelectedId(saved.id)
+      setForm(dashboardToInput(saved))
+      await onDataChange()
+      showToast('看板已保存')
+      return saved
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+      return null
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeDashboard = async () => {
+    if (!selected || !window.confirm(`删除看板“${selected.name}”？查询历史不会受到影响。`)) return
+    await window.nova.deleteDashboard(selected.id)
+    setSelectedId('new')
+    setForm(emptyDashboard())
+    await onDataChange()
+    showToast('看板已删除')
+  }
+
+  const addRun = (run: QueryRun) => {
+    if (form.cards.some((card) => card.queryRunId === run.id) || form.cards.length >= 24) return
+    const fields = inferChartFields(run)
+    const view: DashboardCard['view'] = run.table?.rows.length === 1 && fields ? 'metric' : fields ? 'chart' : 'table'
+    setForm((current) => ({
+      ...current,
+      cards: [...current.cards, {
+        id: crypto.randomUUID(),
+        queryRunId: run.id,
+        title: run.chart?.title ?? run.question,
+        view,
+        width: view === 'metric' ? 'half' : 'full',
+      }],
+    }))
+  }
+
+  const updateCard = (id: string, patch: Partial<DashboardCard>) => {
+    setForm((current) => ({ ...current, cards: current.cards.map((card) => card.id === id ? { ...card, ...patch } : card) }))
+  }
+
+  const dropCard = (targetId: string) => {
+    if (!draggingId || draggingId === targetId) return
+    setForm((current) => {
+      const cards = [...current.cards]
+      const from = cards.findIndex((card) => card.id === draggingId)
+      const to = cards.findIndex((card) => card.id === targetId)
+      if (from < 0 || to < 0) return current
+      const [card] = cards.splice(from, 1)
+      cards.splice(to, 0, card!)
+      return { ...current, cards }
+    })
+    setDraggingId(null)
+  }
+
+  const exportDashboard = async (format: 'html' | 'png') => {
+    if (!exportRef.current || !form.cards.length) return
+    setExporting(format)
+    try {
+      const options = {
+        cacheBust: true,
+        backgroundColor: '#faf9f5',
+        pixelRatio: 2,
+        filter: (node: HTMLElement) => !node.classList?.contains('dashboard-export-exclude'),
+      }
+      let data: string
+      if (format === 'png') {
+        data = await toPng(exportRef.current, options)
+      } else {
+        const svg = await toSvg(exportRef.current, options)
+        const title = htmlAttribute(form.name.trim() || 'Nova 看板')
+        data = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>html,body{margin:0;background:#faf9f5}body{display:grid;place-items:start center;padding:24px;box-sizing:border-box}img{display:block;max-width:100%;height:auto}</style></head><body><img alt="${title}" src="${htmlAttribute(svg)}"></body></html>`
+      }
+      const result = await window.nova.saveDashboardExport({ name: form.name.trim() || 'Nova 看板', format, data })
+      if (!result.canceled) showToast(format === 'html' ? 'HTML 看板已导出' : '看板图片已导出')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const normalizedSearch = librarySearch.trim().toLocaleLowerCase()
+  const availableRuns = runs.filter((run) => run.status === 'success' && run.table?.rows.length && (
+    !normalizedSearch || `${run.question} ${run.dataSourceName}`.toLocaleLowerCase().includes(normalizedSearch)
+  ))
+
+  return (
+    <div className="dashboard-page">
+      <aside className="dashboard-index">
+        <div className="source-index-heading">
+          <div><h1>看板</h1><span>{dashboards.length} 个</span></div>
+          <button className="icon-button dark" onClick={() => { setSelectedId('new'); setForm(emptyDashboard()) }} aria-label="新建看板" title="新建看板"><Plus size={17} /></button>
+        </div>
+        <div className="dashboard-list">
+          {dashboards.map((dashboard) => (
+            <button key={dashboard.id} className={selectedId === dashboard.id ? 'active' : ''} onClick={() => { setSelectedId(dashboard.id); setForm(dashboardToInput(dashboard)) }}>
+              <LayoutDashboard size={16} /><span><strong>{dashboard.name}</strong><small>{dashboard.cards.length} 张卡片 · {formatTime(dashboard.updatedAt)}</small></span>
+            </button>
+          ))}
+          {!dashboards.length && <div className="list-empty compact"><LayoutDashboard size={21} /><span>还没有看板</span></div>}
+        </div>
+      </aside>
+
+      <section className="dashboard-studio">
+        <header className="dashboard-studio-heading dashboard-export-exclude">
+          <div className="dashboard-name-fields">
+            <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} maxLength={80} aria-label="看板名称" />
+            <input value={form.description ?? ''} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} maxLength={240} placeholder="添加一句说明" aria-label="看板说明" />
+          </div>
+          <div className="dashboard-actions">
+            {selected && <button className="danger-icon-button" onClick={() => void removeDashboard()} aria-label="删除看板" title="删除看板"><Trash2 size={16} /></button>}
+            <button className="secondary-button compact" onClick={() => setLibraryOpen((open) => !open)}><Plus size={15} />添加卡片</button>
+            <button className="secondary-button compact" onClick={() => void exportDashboard('html')} disabled={Boolean(exporting) || !form.cards.length}>{exporting === 'html' ? <LoaderCircle size={15} className="spin" /> : <FileCode2 size={15} />}HTML</button>
+            <button className="secondary-button compact" onClick={() => void exportDashboard('png')} disabled={Boolean(exporting) || !form.cards.length}>{exporting === 'png' ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}图片</button>
+            <button className="primary-button compact" onClick={() => void save()} disabled={saving || !form.name.trim()}>{saving ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}保存</button>
+          </div>
+        </header>
+
+        <div className="dashboard-scroll-area">
+          <div className="dashboard-export-surface" ref={exportRef}>
+            <div className="dashboard-export-heading">
+              <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>{form.description && <p>{form.description}</p>}
+            </div>
+            <div className="dashboard-canvas">
+              {form.cards.map((card) => {
+                const run = runs.find((item) => item.id === card.queryRunId)
+                return (
+                  <article
+                    key={card.id}
+                    className={`dashboard-card dashboard-card-${card.width} ${draggingId === card.id ? 'dragging' : ''}`}
+                    draggable
+                    onDragStart={() => setDraggingId(card.id)}
+                    onDragEnd={() => setDraggingId(null)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => dropCard(card.id)}
+                  >
+                    <header>
+                      <div className="dashboard-card-title"><GripVertical className="dashboard-export-exclude" size={16} /><div><strong>{card.title}</strong><span>{run?.dataSourceName ?? '查询记录不可用'}</span></div></div>
+                      <div className="dashboard-card-actions dashboard-export-exclude">
+                        {(['metric', 'chart', 'table'] as const).map((view) => <button key={view} className={card.view === view ? 'active' : ''} onClick={() => updateCard(card.id, { view })}>{view === 'metric' ? '指标' : view === 'chart' ? '图表' : '表格'}</button>)}
+                        <button onClick={() => updateCard(card.id, { width: card.width === 'half' ? 'full' : 'half' })} title={card.width === 'half' ? '切换为通栏' : '切换为半宽'} aria-label={card.width === 'half' ? '切换为通栏' : '切换为半宽'}><Maximize2 size={14} /></button>
+                        <button onClick={() => setForm((current) => ({ ...current, cards: current.cards.filter((item) => item.id !== card.id) }))} title="移除卡片" aria-label="移除卡片"><X size={14} /></button>
+                      </div>
+                    </header>
+                    <DashboardCardContent card={card} run={run} />
+                  </article>
+                )
+              })}
+              {!form.cards.length && <div className="dashboard-empty"><LayoutDashboard size={28} /><strong>从查询结果添加卡片</strong><span>图表、表格和单项指标都可以组合</span><button className="primary-button dashboard-export-exclude" onClick={() => setLibraryOpen(true)}><Plus size={16} />选择查询结果</button></div>}
+            </div>
+            <footer className="dashboard-export-footer">© 2026 yiheng</footer>
+          </div>
+        </div>
+
+        {libraryOpen && (
+          <aside className="dashboard-library dashboard-export-exclude">
+            <header><div><strong>查询结果</strong><span>{availableRuns.length} 条可用</span></div><button className="icon-button" onClick={() => setLibraryOpen(false)} aria-label="关闭卡片库"><X size={15} /></button></header>
+            <label><Search size={15} /><input value={librarySearch} onChange={(event) => setLibrarySearch(event.target.value)} placeholder="搜索问题或数据源" /></label>
+            <div>
+              {availableRuns.map((run) => {
+                const added = form.cards.some((card) => card.queryRunId === run.id)
+                return <button key={run.id} disabled={added} onClick={() => addRun(run)}><span><strong>{run.question}</strong><small>{run.dataSourceName} · {formatTime(run.createdAt)}</small></span>{added ? <Check size={15} /> : <Plus size={15} />}</button>
+              })}
+              {!availableRuns.length && <div className="list-empty compact"><Search size={20} /><span>没有匹配的查询结果</span></div>}
+            </div>
+          </aside>
+        )}
+      </section>
     </div>
   )
 }

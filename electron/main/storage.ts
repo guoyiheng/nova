@@ -5,6 +5,9 @@ import type {
   AgentProgressEvent,
   BootstrapData,
   ChartSpec,
+  Dashboard,
+  DashboardCard,
+  DashboardInput,
   DataSource,
   DataSourceInput,
   ModelChannel,
@@ -90,6 +93,15 @@ type ScheduledTaskRow = {
   last_status: ScheduledTask['lastStatus']
   last_error: string | null
   next_run_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+type DashboardRow = {
+  id: string
+  name: string
+  description: string
+  cards_json: string
   created_at: string
   updated_at: string
 }
@@ -252,6 +264,14 @@ export class Storage {
         FOREIGN KEY(data_source_id) REFERENCES data_sources(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(enabled, next_run_at);
+      CREATE TABLE IF NOT EXISTS dashboards (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        cards_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `)
 
     const queryRunColumns = this.db.prepare('PRAGMA table_info(query_runs)').all() as unknown as Array<{ name: string }>
@@ -267,7 +287,21 @@ export class Storage {
     if (queryRunColumns.some((column) => column.name === 'dashboard_id')) {
       this.db.exec('ALTER TABLE query_runs DROP COLUMN dashboard_id')
     }
-    this.db.exec('DROP TABLE IF EXISTS dashboards')
+
+    const dashboardColumns = this.db.prepare('PRAGMA table_info(dashboards)').all() as unknown as Array<{ name: string }>
+    if (dashboardColumns.length && !dashboardColumns.some((column) => column.name === 'cards_json')) {
+      this.db.exec(`
+        DROP TABLE dashboards;
+        CREATE TABLE dashboards (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          cards_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `)
+    }
 
     const savedSqlColumns = this.db.prepare('PRAGMA table_info(saved_sql)').all() as unknown as Array<{ name: string; notnull: number }>
     const savedSqlSourceColumn = savedSqlColumns.find((column) => column.name === 'data_source_id')
@@ -727,6 +761,43 @@ export class Storage {
     return this.getScheduledTask(id)!
   }
 
+  listDashboards(): Dashboard[] {
+    const rows = this.db.prepare('SELECT * FROM dashboards ORDER BY updated_at DESC').all() as unknown as DashboardRow[]
+    return rows.map((row) => this.mapDashboard(row))
+  }
+
+  getDashboard(id: string): Dashboard | null {
+    const row = this.db.prepare('SELECT * FROM dashboards WHERE id = ?').get(id) as DashboardRow | undefined
+    return row ? this.mapDashboard(row) : null
+  }
+
+  saveDashboard(input: DashboardInput): Dashboard {
+    const existing = input.id ? this.getDashboard(input.id) : null
+    const id = existing?.id ?? randomUUID()
+    const now = new Date().toISOString()
+    this.db.prepare(`
+      INSERT INTO dashboards (id, name, description, cards_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        description = excluded.description,
+        cards_json = excluded.cards_json,
+        updated_at = excluded.updated_at
+    `).run(
+      id,
+      input.name.trim(),
+      input.description?.trim() ?? '',
+      JSON.stringify(input.cards),
+      existing?.createdAt ?? now,
+      now,
+    )
+    return this.getDashboard(id)!
+  }
+
+  deleteDashboard(id: string) {
+    this.db.prepare('DELETE FROM dashboards WHERE id = ?').run(id)
+  }
+
   exportableConfig() {
     const sources = this.listDataSources()
     const sourceNames = new Map(sources.map((source) => [source.id, source.name]))
@@ -866,6 +937,7 @@ export class Storage {
       savedSql: this.listSavedSql(),
       modelChannels: this.listModelChannels(),
       scheduledTasks: this.listScheduledTasks(),
+      dashboards: this.listDashboards(),
     }
   }
 
@@ -909,6 +981,31 @@ export class Storage {
       lastStatus: row.last_status,
       lastError: row.last_error,
       nextRunAt: row.next_run_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  private mapDashboard(row: DashboardRow): Dashboard {
+    let cards: DashboardCard[] = []
+    try {
+      const parsed = JSON.parse(row.cards_json) as unknown
+      if (Array.isArray(parsed)) cards = parsed.filter((card): card is DashboardCard => (
+        typeof card === 'object' && card !== null
+        && typeof (card as DashboardCard).id === 'string'
+        && typeof (card as DashboardCard).queryRunId === 'string'
+        && typeof (card as DashboardCard).title === 'string'
+        && ['chart', 'table', 'metric'].includes((card as DashboardCard).view)
+        && ['half', 'full'].includes((card as DashboardCard).width)
+      ))
+    } catch {
+      // Treat damaged optional dashboard metadata as an empty dashboard.
+    }
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      cards,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
