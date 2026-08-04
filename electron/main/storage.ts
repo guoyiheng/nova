@@ -82,6 +82,7 @@ type ModelChannelRow = {
 type ScheduledTaskRow = {
   id: string
   name: string
+  question: string
   data_source_id: string
   sql: string
   schedule_kind: ScheduledTask['scheduleKind']
@@ -248,6 +249,7 @@ export class Storage {
       CREATE TABLE IF NOT EXISTS scheduled_tasks (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        question TEXT NOT NULL DEFAULT '',
         data_source_id TEXT NOT NULL,
         sql TEXT NOT NULL,
         schedule_kind TEXT NOT NULL,
@@ -278,6 +280,11 @@ export class Storage {
     if (!queryRunColumns.some((column) => column.name === 'mode')) {
       this.db.exec("ALTER TABLE query_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'smart'")
     }
+    const scheduledTaskColumns = this.db.prepare('PRAGMA table_info(scheduled_tasks)').all() as unknown as Array<{ name: string }>
+    if (!scheduledTaskColumns.some((column) => column.name === 'question')) {
+      this.db.exec("ALTER TABLE scheduled_tasks ADD COLUMN question TEXT NOT NULL DEFAULT ''")
+    }
+    this.db.exec("UPDATE scheduled_tasks SET question = name WHERE question = ''")
     if (!queryRunColumns.some((column) => column.name === 'model')) {
       this.db.exec('ALTER TABLE query_runs ADD COLUMN model TEXT')
     }
@@ -702,11 +709,12 @@ export class Storage {
     }, now).toISOString() : null
     this.db.prepare(`
       INSERT INTO scheduled_tasks (
-        id, name, data_source_id, sql, schedule_kind, interval_minutes, time_of_day, day_of_week,
+        id, name, question, data_source_id, sql, schedule_kind, interval_minutes, time_of_day, day_of_week,
         enabled, last_run_at, last_status, last_error, next_run_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
+        question = excluded.question,
         data_source_id = excluded.data_source_id,
         sql = excluded.sql,
         schedule_kind = excluded.schedule_kind,
@@ -719,6 +727,7 @@ export class Storage {
     `).run(
       id,
       input.name.trim(),
+      input.question.trim(),
       input.dataSourceId,
       input.sql.trim(),
       input.scheduleKind,
@@ -969,6 +978,7 @@ export class Storage {
     return {
       id: row.id,
       name: row.name,
+      question: row.question || row.name,
       dataSourceId: row.data_source_id,
       dataSourceName: this.getDataSource(row.data_source_id)?.name ?? '未知数据源',
       sql: row.sql,

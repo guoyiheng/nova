@@ -3691,9 +3691,9 @@ summary:focus-visible {
   max-width: 780px;
 }
 
-.task-sql-field textarea {
+.task-question-field textarea,
+.task-query-plan textarea {
   width: 100%;
-  min-height: 176px;
   resize: vertical;
   border: 1px solid var(--rule-strong);
   border-radius: 8px;
@@ -3701,15 +3701,96 @@ summary:focus-visible {
   outline: 0;
   background: var(--surface-raised);
   color: var(--ink);
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
   font-size: 0.8125rem;
   line-height: 1.6;
   box-sizing: border-box;
 }
 
-.task-sql-field textarea:focus {
+.task-question-field textarea {
+  min-height: 108px;
+  font: inherit;
+}
+
+.task-query-plan textarea {
+  min-height: 152px;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+
+.task-question-field textarea:focus,
+.task-query-plan textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.task-generate-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: -8px;
+}
+
+.task-generate-row>span {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+.task-query-plan {
+  display: grid;
+  gap: 12px;
+  border-block: 1px solid var(--rule);
+  padding: 15px 0;
+}
+
+.task-query-plan>div {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--green);
+}
+
+.task-query-plan>div>span {
+  display: grid;
+  gap: 2px;
+}
+
+.task-query-plan strong {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 650;
+}
+
+.task-query-plan small {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+.task-query-plan details {
+  display: grid;
+  gap: 10px;
+}
+
+.task-query-plan summary {
+  width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.task-query-plan summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-query-plan summary svg {
+  transition: transform 160ms var(--ease-out);
+}
+
+.task-query-plan details[open] summary svg {
+  transform: rotate(180deg);
 }
 
 .task-enabled-toggle {

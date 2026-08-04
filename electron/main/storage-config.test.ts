@@ -36,6 +36,7 @@ describe('portable configuration', () => {
     const source = sourceStorage.saveDataSource({ name: 'Analytics', type: 'postgres' })
     const task = sourceStorage.saveScheduledTask({
       name: 'Hourly report',
+      question: 'Show the current service status',
       dataSourceId: source.id,
       sql: 'SELECT 1',
       scheduleKind: 'interval',
@@ -44,6 +45,7 @@ describe('portable configuration', () => {
     })
 
     expect(task.dataSourceName).toBe('Analytics')
+    expect(task.question).toBe('Show the current service status')
     expect(task.nextRunAt).not.toBeNull()
     const completed = sourceStorage.completeScheduledTask(task.id, 'success', null, new Date('2026-08-04T02:00:00.000Z'))
     expect(completed.lastRunAt).toBe('2026-08-04T02:00:00.000Z')

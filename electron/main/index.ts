@@ -125,6 +125,7 @@ const batchImportSqlSchema = z.object({
 const scheduledTaskSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(80),
+  question: z.string().trim().min(2).max(4000),
   dataSourceId: z.string().uuid(),
   sql: z.string().trim().min(1).max(200_000),
   scheduleKind: z.enum(['interval', 'daily', 'weekly']),
@@ -225,7 +226,7 @@ async function executeScheduledTask(task: ScheduledTask): Promise<ScheduledTask>
     storage.saveQueryRun({
       dataSourceId: source.id,
       dataSourceName: source.name,
-      question: `定时任务：${task.name}`,
+      question: task.question,
       answer: `定时任务执行完成，${executionSummary(table)}。`,
       sql: task.sql,
       table,
@@ -241,7 +242,7 @@ async function executeScheduledTask(task: ScheduledTask): Promise<ScheduledTask>
     storage.saveQueryRun({
       dataSourceId: task.dataSourceId,
       dataSourceName: source?.name ?? task.dataSourceName,
-      question: `定时任务：${task.name}`,
+      question: task.question,
       answer: '',
       sql: task.sql,
       table: null,

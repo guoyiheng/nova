@@ -184,6 +184,7 @@ export type ScheduleKind = 'interval' | 'daily' | 'weekly'
 export interface ScheduledTask {
   id: string
   name: string
+  question: string
   dataSourceId: string
   dataSourceName: string
   sql: string
@@ -203,6 +204,7 @@ export interface ScheduledTask {
 export interface ScheduledTaskInput {
   id?: string
   name: string
+  question: string
   dataSourceId: string
   sql: string
   scheduleKind: ScheduleKind
