@@ -2691,7 +2691,7 @@ summary:focus-visible {
 }
 
 .dashboard-name-fields {
-  min-width: 180px;
+  min-width: 220px;
   display: grid;
   gap: 3px;
 }
@@ -2710,11 +2710,6 @@ summary:focus-visible {
   font-family: var(--font-display);
   font-size: 1.2rem;
   font-weight: 540;
-}
-
-.dashboard-name-fields input:last-child {
-  color: var(--ink-faint);
-  font-size: 0.75rem;
 }
 
 .dashboard-actions {
@@ -2756,6 +2751,11 @@ summary:focus-visible {
   font-weight: 700;
 }
 
+.dashboard-grid-control button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .dashboard-grid-control button:hover {
   background: var(--surface-card);
   color: var(--ink);
@@ -2764,6 +2764,54 @@ summary:focus-visible {
 .dashboard-grid-control button.active {
   background: var(--ink);
   color: var(--canvas);
+}
+
+.dashboard-export-menu {
+  position: relative;
+}
+
+.dashboard-export-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 124px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 7px;
+  padding: 4px;
+  background: var(--surface-raised);
+  box-shadow: 0 12px 30px rgba(20, 20, 19, 0.13);
+}
+
+.dashboard-export-options button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  padding: 8px 9px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.dashboard-export-options button:hover {
+  background: var(--surface-card);
+  color: var(--ink);
+}
+
+.dashboard-save-state {
+  min-width: 54px;
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.dashboard-save-state.error {
+  color: var(--danger, #b24d4d);
 }
 
 .dashboard-scroll-area {
@@ -2814,14 +2862,16 @@ summary:focus-visible {
 .dashboard-canvas {
   display: grid;
   grid-auto-flow: row dense;
-  align-items: start;
+  grid-auto-rows: 138px;
+  align-items: stretch;
   gap: 16px;
 }
 
 .dashboard-card {
   container-type: inline-size;
   min-width: 0;
-  min-height: 250px;
+  min-height: 0;
+  position: relative;
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -2837,7 +2887,7 @@ summary:focus-visible {
 }
 
 .dashboard-card>header {
-  min-height: 58px;
+  min-height: 52px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2859,10 +2909,34 @@ summary:focus-visible {
   cursor: grab;
 }
 
+.dashboard-card-drag-handle {
+  touch-action: none;
+}
+
 .dashboard-card-title>div {
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+
+.dashboard-card-title-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card-title-input:focus {
+  border-bottom: 1px solid var(--accent);
 }
 
 .dashboard-card-title strong,
@@ -2938,10 +3012,36 @@ summary:focus-visible {
 
 .dashboard-card .chart-wrap {
   padding: 10px 12px 14px;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .dashboard-card .chart-graphic {
-  min-height: 250px;
+  min-height: 0;
+  height: 100%;
+}
+
+.dashboard-chart-type-select {
+  width: 102px;
+}
+
+.dashboard-card-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 46%, var(--ink-faint) 53%, transparent 54%), linear-gradient(135deg, transparent 60%, var(--ink-faint) 61%, var(--ink-faint) 68%, transparent 69%);
+  cursor: nwse-resize;
+  opacity: 0.45;
+  touch-action: none;
+}
+
+.dashboard-card-resize-handle:hover {
+  opacity: 0.9;
 }
 
 @container (max-width: 620px) {

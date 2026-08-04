@@ -61,9 +61,10 @@ describe('portable configuration', () => {
       name: '经营看板',
       description: '每日核心指标',
       columns: 4,
+      rows: 4,
       cards: [
-        { id: 'card-a', queryRunId: 'run-a', title: '销售额', view: 'metric', span: 1 },
-        { id: 'card-b', queryRunId: 'run-b', title: '销售趋势', view: 'chart', span: 2 },
+        { id: 'card-a', queryRunId: 'run-a', title: '销售额', view: 'metric', chartType: 'none', x: 0, y: 0, width: 1, height: 2 },
+        { id: 'card-b', queryRunId: 'run-b', title: '销售趋势', view: 'chart', chartType: 'line', x: 1, y: 0, width: 2, height: 2 },
       ],
     })
     expect(dashboard.columns).toBe(4)
@@ -74,13 +75,14 @@ describe('portable configuration', () => {
       name: dashboard.name,
       description: dashboard.description,
       columns: 5,
+      rows: 4,
       cards: [...dashboard.cards].reverse(),
     })
     expect(updated.columns).toBe(5)
     expect(updated.cards.map((card) => card.id)).toEqual(['card-b', 'card-a'])
   })
 
-  it('migrates legacy dashboard widths to grid spans', () => {
+  it('migrates legacy dashboard widths to grid positions', () => {
     const directory = mkdtempSync(join(tmpdir(), 'nova-dashboard-grid-'))
     const databasePath = join(directory, 'nova.sqlite')
     const initialStorage = new Storage(databasePath)
@@ -101,7 +103,8 @@ describe('portable configuration', () => {
     try {
       expect(migratedStorage.getDashboard('legacy-grid')).toMatchObject({
         columns: 3,
-        cards: [{ span: 1 }, { span: 2 }],
+        rows: 4,
+        cards: [{ width: 1, height: 2, x: 0, y: 0 }, { width: 2, height: 2, x: 1, y: 0 }],
       })
     } finally {
       migratedStorage.close()
@@ -377,6 +380,7 @@ describe('portable configuration', () => {
         'name',
         'description',
         'columns',
+        'rows',
         'cards_json',
         'created_at',
         'updated_at',

@@ -30,6 +30,7 @@ import {
   ListFilter,
   LoaderCircle,
   Maximize2,
+  Minus,
   PackageOpen,
   Pin,
   PlugZap,
@@ -91,6 +92,7 @@ import type {
   UpdateCheckResult,
   UpdateDownloadProgress,
 } from '../electron/shared/types'
+import { dashboardRequiredRows, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from '../electron/shared/dashboard-grid'
 import novaIconUrl from './assets/nova-icon.svg'
 import { ResultProcess } from './ResultProcess'
 import {
@@ -1369,12 +1371,13 @@ function ResultMetric({ run, fields }: { run: QueryRun; fields: ChartFields }) {
   )
 }
 
-function ResultChart({ run, type, fields, onTypeChange, readonly = false }: {
+function ResultChart({ run, type, fields, onTypeChange, readonly = false, fill = false }: {
   run: QueryRun
   type: ResultChartType
   fields: ChartFields
   onTypeChange: (type: ResultChartType) => void
   readonly?: boolean
+  fill?: boolean
 }) {
   if (!run.table) return null
   const limit = type === 'pie' || type === 'radar' || type === 'funnel' ? 12 : 24
@@ -1426,7 +1429,7 @@ function ResultChart({ run, type, fields, onTypeChange, readonly = false }: {
         <ResultFunnel run={run} fields={fields} />
       ) : (
         <div className="chart-graphic" role="img" aria-label={run.chart?.title ?? run.question}>
-          <ResponsiveContainer width="100%" height={286}>
+          <ResponsiveContainer width="100%" height={fill ? '100%' : 286}>
             {type === 'line' ? (
               <LineChart data={data} margin={{ top: 12, right: 20, bottom: 4, left: 2 }}>
                 <CartesianGrid stroke="#e6dfd8" vertical={false} />
@@ -1843,12 +1846,13 @@ function dashboardToInput(dashboard: Dashboard): DashboardInput {
     name: dashboard.name,
     description: dashboard.description,
     columns: dashboard.columns,
+    rows: dashboard.rows,
     cards: dashboard.cards,
   }
 }
 
 function emptyDashboard(): DashboardInput {
-  return { name: '经营看板', description: '', columns: 3, cards: [] }
+  return { name: '经营看板', description: '', columns: 3, rows: 4, cards: [] }
 }
 
 function htmlAttribute(value: string) {
@@ -1862,7 +1866,7 @@ function DashboardCardContent({ card, run }: { card: DashboardCard; run: QueryRu
     return <ResultMetric run={run} fields={fields} />
   }
   if (card.view === 'chart' && fields) {
-    return <ResultChart run={run} type={inferBestChartType(run)} fields={fields} onTypeChange={() => undefined} readonly />
+    return <ResultChart run={run} type={card.chartType === 'none' ? inferBestChartType(run) : card.chartType as ResultChartType} fields={fields} onTypeChange={() => undefined} readonly fill />
   }
   const columns = run.table.columns.slice(0, 6)
   return (
@@ -1887,31 +1891,62 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [librarySearch, setLibrarySearch] = useState('')
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [exporting, setExporting] = useState<'html' | 'png' | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [interaction, setInteraction] = useState<{ cardId: string; mode: 'move' | 'resize'; startX: number; startY: number; initial: DashboardCard } | null>(null)
   const exportRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSavedRef = useRef(JSON.stringify(form))
+  const selectedRef = useRef(selectedId)
+  const revisionRef = useRef(0)
 
   useEffect(() => {
-    if (selected) setForm((current) => current.id === selected.id ? current : dashboardToInput(selected))
-    else if (selectedId === 'new') setForm((current) => current.id ? emptyDashboard() : current)
-  }, [selected, selectedId])
+    if (selectedRef.current === selectedId) return
+    selectedRef.current = selectedId
+    const next = dashboards.find((dashboard) => dashboard.id === selectedId)
+    const nextForm = next ? dashboardToInput(next) : emptyDashboard()
+    setForm(nextForm)
+    lastSavedRef.current = JSON.stringify(nextForm)
+    setSaveState('idle')
+  }, [dashboards, selectedId])
 
-  const save = async () => {
-    setSaving(true)
+  const persist = async (snapshot: DashboardInput) => {
+    const revision = ++revisionRef.current
+    setSaveState('saving')
     try {
-      const saved = await window.nova.saveDashboard(form)
-      setSelectedId(saved.id)
-      setForm(dashboardToInput(saved))
+      const safeSnapshot = { ...snapshot, cards: snapshot.cards.map((card) => ({ ...card, title: card.title.trim() || '未命名卡片' })) }
+      const saved = await window.nova.saveDashboard(safeSnapshot)
+      const savedForm = dashboardToInput(saved)
+      lastSavedRef.current = JSON.stringify(savedForm)
+      if (revision === revisionRef.current) {
+        setForm((current) => current.id ? current : { ...current, id: saved.id })
+        selectedRef.current = saved.id
+        setSelectedId(saved.id)
+        setSaveState('saved')
+      }
       await onDataChange()
-      showToast('看板已保存')
-      return saved
     } catch (error) {
+      if (revision === revisionRef.current) setSaveState('error')
       showToast(errorMessage(error), 'error')
-      return null
-    } finally {
-      setSaving(false)
     }
   }
+
+  useEffect(() => {
+    const fingerprint = JSON.stringify(form)
+    if (fingerprint === lastSavedRef.current || !form.name.trim()) return
+    if (selectedId === 'new' && form.name === '经营看板' && !form.cards.length && !form.description?.trim()) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => void persist(form), 700)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [form, selectedId])
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+  }, [])
 
   const removeDashboard = async () => {
     if (!selected || !window.confirm(`删除看板“${selected.name}”？查询历史不会受到影响。`)) return
@@ -1928,13 +1963,18 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
     const view: DashboardCard['view'] = run.table?.rows.length === 1 && fields ? 'metric' : fields ? 'chart' : 'table'
     setForm((current) => ({
       ...current,
-      cards: [...current.cards, {
+      rows: Math.max(current.rows, dashboardRequiredRows(current.cards, 4)),
+      cards: normalizeDashboardCards([...current.cards, {
         id: crypto.randomUUID(),
         queryRunId: run.id,
         title: run.chart?.title ?? run.question,
         view,
-        span: view === 'metric' ? 1 : 2,
-      }],
+        chartType: run.chart?.type ?? (fields ? inferBestChartType(run) : 'none'),
+        x: 0,
+        y: 0,
+        width: view === 'metric' ? 1 : Math.min(2, current.columns),
+        height: 2,
+      }], current.columns),
     }))
   }
 
@@ -1943,29 +1983,60 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   }
 
   const updateColumns = (columns: number) => {
-    setForm((current) => ({
-      ...current,
-      columns,
-      cards: current.cards.map((card) => ({
-        ...card,
-        span: Math.min(card.span, columns) as DashboardCard['span'],
-      })),
-    }))
+    setForm((current) => {
+      const nextColumns = Math.min(8, Math.max(2, columns))
+      const cards = normalizeDashboardCards(current.cards.map((card) => ({ ...card, width: Math.min(card.width, nextColumns) })), nextColumns)
+      return { ...current, columns: nextColumns, rows: Math.max(current.rows, dashboardRequiredRows(cards, 4)), cards }
+    })
   }
 
-  const dropCard = (targetId: string) => {
-    if (!draggingId || draggingId === targetId) return
-    setForm((current) => {
-      const cards = [...current.cards]
-      const from = cards.findIndex((card) => card.id === draggingId)
-      const to = cards.findIndex((card) => card.id === targetId)
-      if (from < 0 || to < 0) return current
-      const [card] = cards.splice(from, 1)
-      cards.splice(to, 0, card!)
-      return { ...current, cards }
-    })
-    setDraggingId(null)
+  const updateRows = (rows: number) => {
+    setForm((current) => ({ ...current, rows: Math.max(dashboardRequiredRows(current.cards, 2), Math.min(100, Math.max(2, rows))) }))
   }
+
+  const beginInteraction = (event: React.PointerEvent, card: DashboardCard, mode: 'move' | 'resize') => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDraggingId(card.id)
+    setInteraction({ cardId: card.id, mode, startX: event.clientX, startY: event.clientY, initial: card })
+  }
+
+  useEffect(() => {
+    if (!interaction) return
+    const move = (event: PointerEvent) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const gap = 16
+      const cellWidth = (rect.width - gap * (form.columns - 1)) / form.columns
+      const dx = (event.clientX - interaction.startX) / (cellWidth + gap)
+      const dy = (event.clientY - interaction.startY) / (138 + gap)
+      setForm((current) => {
+        const index = current.cards.findIndex((card) => card.id === interaction.cardId)
+        if (index < 0) return current
+        const cards = [...current.cards]
+        const initial = interaction.initial
+        let candidate: DashboardCard
+        if (interaction.mode === 'move') {
+          candidate = { ...initial, x: Math.max(0, Math.min(current.columns - initial.width, Math.round(initial.x + dx))), y: Math.max(0, Math.round(initial.y + dy)) }
+        } else {
+          const snapped = snapSizeToNeighbors(cards, index, initial.width + dx, initial.height + dy, current.columns)
+          candidate = { ...initial, width: snapped.width, height: snapped.height }
+        }
+        const otherRects = cards.filter((_, cardIndex) => cardIndex !== index)
+        if (!isRectAvailable(otherRects, candidate, current.columns)) return current
+        cards[index] = candidate
+        return { ...current, rows: Math.max(current.rows, dashboardRequiredRows(cards, 4)), cards }
+      })
+    }
+    const end = () => { setInteraction(null); setDraggingId(null) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end, { once: true })
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+    }
+  }, [form.columns, interaction])
 
   const exportDashboard = async (format: 'html' | 'png') => {
     if (!exportRef.current || !form.cards.length) return
@@ -1991,6 +2062,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
       showToast(errorMessage(error), 'error')
     } finally {
       setExporting(null)
+      setExportOpen(false)
     }
   }
 
@@ -2021,81 +2093,56 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         <header className="dashboard-studio-heading dashboard-export-exclude">
           <div className="dashboard-name-fields">
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} maxLength={80} aria-label="看板名称" />
-            <input value={form.description ?? ''} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} maxLength={240} placeholder="添加一句说明" aria-label="看板说明" />
           </div>
           <div className="dashboard-actions">
-            <div className="dashboard-grid-control" role="group" aria-label="看板画布列数">
+            <div className="dashboard-grid-control" role="group" aria-label="看板画布行列">
               <LayoutGrid size={15} />
-              <span>画布</span>
-              {[2, 3, 4, 5, 6].map((columns) => (
-                <button
-                  key={columns}
-                  type="button"
-                  className={form.columns === columns ? 'active' : ''}
-                  onClick={() => updateColumns(columns)}
-                  title={`${columns} 列画布`}
-                  aria-label={`${columns} 列画布`}
-                >
-                  {columns}
-                </button>
-              ))}
+              <span>{form.rows} 行 × {form.columns} 列</span>
+              <button type="button" onClick={() => updateRows(form.rows - 1)} disabled={form.rows <= dashboardRequiredRows(form.cards, 2)} title="减少行数" aria-label="减少行数"><Minus size={13} /></button>
+              <button type="button" onClick={() => updateRows(form.rows + 1)} title="增加行数" aria-label="增加行数"><Plus size={13} /></button>
+              <button type="button" onClick={() => updateColumns(form.columns - 1)} disabled={form.columns <= 2} title="减少列数" aria-label="减少列数"><Minus size={13} /></button>
+              <button type="button" onClick={() => updateColumns(form.columns + 1)} disabled={form.columns >= 8} title="增加列数" aria-label="增加列数"><Plus size={13} /></button>
             </div>
             {selected && <button className="danger-icon-button" onClick={() => void removeDashboard()} aria-label="删除看板" title="删除看板"><Trash2 size={16} /></button>}
             <button className="secondary-button compact" onClick={() => setLibraryOpen((open) => !open)}><Plus size={15} />添加卡片</button>
-            <button className="secondary-button compact" onClick={() => void exportDashboard('html')} disabled={Boolean(exporting) || !form.cards.length}>{exporting === 'html' ? <LoaderCircle size={15} className="spin" /> : <FileCode2 size={15} />}HTML</button>
-            <button className="secondary-button compact" onClick={() => void exportDashboard('png')} disabled={Boolean(exporting) || !form.cards.length}>{exporting === 'png' ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}图片</button>
-            <button className="primary-button compact" onClick={() => void save()} disabled={saving || !form.name.trim()}>{saving ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}保存</button>
+            <div className="dashboard-export-menu">
+              <button className="secondary-button compact" onClick={() => setExportOpen((open) => !open)} disabled={Boolean(exporting) || !form.cards.length}><Download size={15} />导出<ChevronDown size={13} /></button>
+              {exportOpen && <div className="dashboard-export-options"><button onClick={() => void exportDashboard('html')}><FileCode2 size={15} />HTML</button><button onClick={() => void exportDashboard('png')}><Download size={15} />图片</button></div>}
+            </div>
+            <span className={`dashboard-save-state ${saveState}`}>{saveState === 'saving' ? '保存中' : saveState === 'saved' ? '已自动保存' : saveState === 'error' ? '保存失败' : ''}</span>
           </div>
         </header>
 
         <div className="dashboard-scroll-area">
           <div className="dashboard-export-surface" ref={exportRef} style={{ width: `${dashboardSurfaceWidth}px` }}>
             <div className="dashboard-export-heading">
-              <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>{form.description && <p>{form.description}</p>}
+              <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>
             </div>
-            <div className="dashboard-canvas" style={{ gridTemplateColumns: `repeat(${form.columns}, minmax(280px, 1fr))` }}>
+            <div className="dashboard-canvas" ref={canvasRef} style={{ gridTemplateColumns: `repeat(${form.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${form.rows}, 138px)` }}>
               {form.cards.map((card) => {
                 const run = runs.find((item) => item.id === card.queryRunId)
                 return (
                   <article
                     key={card.id}
                     className={`dashboard-card ${draggingId === card.id ? 'dragging' : ''}`}
-                    style={{ gridColumn: `span ${Math.min(card.span, form.columns)}` }}
-                    draggable
-                    onDragStart={() => setDraggingId(card.id)}
-                    onDragEnd={() => setDraggingId(null)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => dropCard(card.id)}
+                    style={{ gridColumn: `${card.x + 1} / span ${card.width}`, gridRow: `${card.y + 1} / span ${card.height}` }}
                   >
                     <header>
-                      <div className="dashboard-card-title"><GripVertical className="dashboard-export-exclude" size={16} /><div><strong>{card.title}</strong><span>{run?.dataSourceName ?? '查询记录不可用'}</span></div></div>
+                      <div className="dashboard-card-title"><GripVertical className="dashboard-export-exclude dashboard-card-drag-handle" size={16} onPointerDown={(event) => beginInteraction(event, card, 'move')} /><div><input className="dashboard-card-title-input" value={card.title} onChange={(event) => updateCard(card.id, { title: event.target.value })} maxLength={160} aria-label="卡片标题" /></div></div>
                       <div className="dashboard-card-actions dashboard-export-exclude">
                         <div className="dashboard-view-control" role="group" aria-label="卡片视图">
                           {(['metric', 'chart', 'table'] as const).map((view) => <button key={view} className={card.view === view ? 'active' : ''} onClick={() => updateCard(card.id, { view })}>{view === 'metric' ? '指标' : view === 'chart' ? '图表' : '表格'}</button>)}
                         </div>
-                        <div className="dashboard-span-control" role="group" aria-label="卡片占用列数">
-                          <span>占</span>
-                          {([1, 2, 3, 4] as const).slice(0, Math.min(4, form.columns)).map((span) => (
-                            <button
-                              key={span}
-                              type="button"
-                              className={card.span === span ? 'active' : ''}
-                              onClick={() => updateCard(card.id, { span })}
-                              title={`占 ${span} 列`}
-                              aria-label={`占 ${span} 列`}
-                            >
-                              {span}
-                            </button>
-                          ))}
-                        </div>
+                        {card.view === 'chart' && <SelectControl className="dashboard-chart-type-select" ariaLabel="选择卡片图表类型" value={card.chartType === 'none' ? (run ? inferBestChartType(run) : 'bar') : card.chartType} options={CHART_TYPE_OPTIONS} onChange={(value) => updateCard(card.id, { chartType: value as DashboardCard['chartType'] })} />}
                         <button onClick={() => setForm((current) => ({ ...current, cards: current.cards.filter((item) => item.id !== card.id) }))} title="移除卡片" aria-label="移除卡片"><X size={14} /></button>
                       </div>
                     </header>
                     <DashboardCardContent card={card} run={run} />
+                    <button className="dashboard-card-resize-handle dashboard-export-exclude" onPointerDown={(event) => beginInteraction(event, card, 'resize')} aria-label="调整卡片大小" title="调整卡片大小" />
                   </article>
                 )
               })}
-              {!form.cards.length && <div className="dashboard-empty" style={{ gridColumn: `1 / span ${Math.min(form.columns, 3)}` }}><LayoutDashboard size={28} /><strong>从查询结果添加卡片</strong><span>图表、表格和单项指标都可以组合</span><button className="primary-button dashboard-export-exclude" onClick={() => setLibraryOpen(true)}><Plus size={16} />选择查询结果</button></div>}
+              {!form.cards.length && <div className="dashboard-empty" style={{ gridColumn: `1 / -1`, gridRow: `1 / span ${Math.min(form.rows, 3)}` }}><LayoutDashboard size={28} /><strong>从查询结果添加卡片</strong><span>图表、表格和单项指标都可以组合</span><button className="primary-button dashboard-export-exclude" onClick={() => setLibraryOpen(true)}><Plus size={16} />选择查询结果</button></div>}
             </div>
             <footer className="dashboard-export-footer">© 2026 yiheng</footer>
           </div>

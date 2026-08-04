@@ -148,14 +148,19 @@ const dashboardCardSchema = z.object({
   queryRunId: z.string().uuid(),
   title: z.string().trim().min(1).max(160),
   view: z.enum(['chart', 'table', 'metric']),
-  span: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  chartType: z.enum(['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'funnel', 'none']),
+  x: z.number().int().min(0).max(31),
+  y: z.number().int().min(0).max(99),
+  width: z.number().int().min(1).max(32),
+  height: z.number().int().min(1).max(100),
 })
 
 const dashboardSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(80),
   description: z.string().max(240).optional(),
-  columns: z.number().int().min(2).max(6),
+  columns: z.number().int().min(2).max(8),
+  rows: z.number().int().min(2).max(100).default(4),
   cards: z.array(dashboardCardSchema).max(24),
 })
 

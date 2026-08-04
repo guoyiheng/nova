@@ -20,6 +20,7 @@ import type {
   ScheduledTask,
   ScheduledTaskInput,
 } from '../shared/types.js'
+import { normalizeDashboardCards } from '../shared/dashboard-grid.js'
 import { nextScheduledRun } from './scheduler.js'
 
 type DataSourceRow = {
@@ -103,6 +104,7 @@ type DashboardRow = {
   name: string
   description: string
   columns: number
+  rows: number
   cards_json: string
   created_at: string
   updated_at: string
@@ -272,6 +274,7 @@ export class Storage {
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         columns INTEGER NOT NULL DEFAULT 3,
+        rows INTEGER NOT NULL DEFAULT 4,
         cards_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -306,6 +309,7 @@ export class Storage {
           name TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
           columns INTEGER NOT NULL DEFAULT 3,
+          rows INTEGER NOT NULL DEFAULT 4,
           cards_json TEXT NOT NULL DEFAULT '[]',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
@@ -313,6 +317,10 @@ export class Storage {
       `)
     } else if (!dashboardColumns.some((column) => column.name === 'columns')) {
       this.db.exec('ALTER TABLE dashboards ADD COLUMN columns INTEGER NOT NULL DEFAULT 3')
+    }
+    const refreshedDashboardColumns = this.db.prepare('PRAGMA table_info(dashboards)').all() as unknown as Array<{ name: string }>
+    if (!refreshedDashboardColumns.some((column) => column.name === 'rows')) {
+      this.db.exec('ALTER TABLE dashboards ADD COLUMN rows INTEGER NOT NULL DEFAULT 4')
     }
 
     const savedSqlColumns = this.db.prepare('PRAGMA table_info(saved_sql)').all() as unknown as Array<{ name: string; notnull: number }>
@@ -790,19 +798,21 @@ export class Storage {
     const id = existing?.id ?? randomUUID()
     const now = new Date().toISOString()
     this.db.prepare(`
-      INSERT INTO dashboards (id, name, description, columns, cards_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO dashboards (id, name, description, columns, rows, cards_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
         columns = excluded.columns,
+        rows = excluded.rows,
         cards_json = excluded.cards_json,
         updated_at = excluded.updated_at
     `).run(
       id,
       input.name.trim(),
       input.description?.trim() ?? '',
-      Math.min(6, Math.max(2, input.columns)),
+      Math.min(8, Math.max(2, input.columns)),
+      Math.min(100, Math.max(2, input.rows)),
       JSON.stringify(input.cards),
       existing?.createdAt ?? now,
       now,
@@ -1017,16 +1027,17 @@ export class Storage {
           || typeof card.view !== 'string'
           || !['chart', 'table', 'metric'].includes(card.view)
         ) return []
-        const span = [1, 2, 3, 4].includes(Number(card.span))
-          ? Number(card.span) as DashboardCard['span']
-          : card.width === 'half' ? 1 : card.width === 'full' ? 2 : null
-        if (!span) return []
+        const legacySpan = [1, 2, 3, 4].includes(Number(card.span)) ? Number(card.span) : card.width === 'half' ? 1 : card.width === 'full' ? 2 : 1
         return [{
           id: card.id,
           queryRunId: card.queryRunId,
           title: card.title,
           view: card.view as DashboardCard['view'],
-          span,
+          chartType: typeof card.chartType === 'string' && ['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'funnel', 'none'].includes(card.chartType) ? card.chartType as DashboardCard['chartType'] : 'none',
+          x: typeof card.x === 'number' ? card.x : 0,
+          y: typeof card.y === 'number' ? card.y : 0,
+          width: typeof card.width === 'number' ? card.width : legacySpan,
+          height: typeof card.height === 'number' ? card.height : 2,
         }]
       })
     } catch {
@@ -1036,8 +1047,9 @@ export class Storage {
       id: row.id,
       name: row.name,
       description: row.description,
-      columns: Math.min(6, Math.max(2, row.columns || 3)),
-      cards,
+      columns: Math.min(8, Math.max(2, row.columns || 3)),
+      rows: Math.min(100, Math.max(2, row.rows || 4)),
+      cards: normalizeDashboardCards(cards, Math.min(8, Math.max(2, row.columns || 3))),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
