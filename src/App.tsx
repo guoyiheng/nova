@@ -1984,7 +1984,7 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
     <div className="sources-layout history-layout">
       <section className="source-index history-index">
         <div className="source-index-heading">
-          <div><h1>历史</h1><span>{filtered.length} 条记录</span></div>
+          <div><h1>历史</h1><span aria-live="polite">{filtered.length} 条记录</span></div>
         </div>
         <div className="history-tools">
           <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索问题或结果" aria-label="搜索历史" /></label>
@@ -2028,7 +2028,7 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
                 <strong>{run.question}</strong>
                 <small>{run.dataSourceName} · {formatTime(run.createdAt)}</small>
               </span>
-              <i className={`status-dot ${run.status === 'success' ? 'connected' : 'failed'}`} title={run.status === 'success' ? '查询成功' : '查询失败'} />
+              <i className={`status-dot ${run.status === 'success' ? 'connected' : 'failed'}`} aria-label={run.status === 'success' ? '查询成功' : '查询失败'} title={run.status === 'success' ? '查询成功' : '查询失败'} />
               {run.isPinned && <Pin className="history-pin" size={13} fill="currentColor" aria-label="已置顶" />}
             </button>
           ))}
