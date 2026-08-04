@@ -30,6 +30,7 @@ import {
   LoaderCircle,
   Maximize2,
   Minus,
+  MoreHorizontal,
   PackageOpen,
   Pin,
   PlugZap,
@@ -1913,6 +1914,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const [exporting, setExporting] = useState<'html' | 'png' | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [layoutOpen, setLayoutOpen] = useState(false)
+  const [activeMenuCardId, setActiveMenuCardId] = useState<string | null>(null)
   const [interaction, setInteraction] = useState<{
     cardId: string
     mode: 'move' | 'resize'
@@ -2151,7 +2153,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         </div>
       </aside>
 
-      <section className="dashboard-studio">
+      <section className="dashboard-studio" onClick={() => setActiveMenuCardId(null)}>
         <header className="dashboard-studio-heading dashboard-export-exclude">
           <div className="dashboard-name-fields">
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} maxLength={80} aria-label="看板名称" />
@@ -2213,6 +2215,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
                 const run = runs.find((item) => item.id === card.queryRunId)
                 const isInteracting = interaction?.cardId === card.id
                 const isMove = isInteracting && interaction.mode === 'move'
+                const isMenuOpen = activeMenuCardId === card.id
                 return (
                   <article
                     key={card.id}
@@ -2221,17 +2224,62 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
                       gridColumn: `${card.x + 1} / span ${card.width}`,
                       gridRow: `${card.y + 1} / span ${card.height}`,
                       transform: isMove ? `translate3d(${interaction.deltaX}px, ${interaction.deltaY}px, 0)` : undefined,
-                      zIndex: isInteracting ? 50 : undefined,
+                      zIndex: isInteracting ? 50 : isMenuOpen ? 40 : undefined,
                     }}
                   >
                     <header>
-                      <div className="dashboard-card-title"><GripVertical className="dashboard-export-exclude dashboard-card-drag-handle" size={16} onPointerDown={(event) => beginInteraction(event, card, 'move')} /><div><input className="dashboard-card-title-input" value={card.title} onChange={(event) => updateCard(card.id, { title: event.target.value })} maxLength={160} aria-label="卡片标题" /></div></div>
-                      <div className="dashboard-card-actions dashboard-export-exclude">
-                        <div className="dashboard-view-control" role="group" aria-label="卡片视图">
-                          {(['metric', 'chart', 'table'] as const).map((view) => <button key={view} className={card.view === view ? 'active' : ''} onClick={() => updateCard(card.id, { view })}>{view === 'metric' ? '指标' : view === 'chart' ? '图表' : '表格'}</button>)}
-                        </div>
-                        {card.view === 'chart' && <SelectControl className="dashboard-chart-type-select" ariaLabel="选择卡片图表类型" value={card.chartType === 'none' ? (run ? inferBestChartType(run) : 'bar') : card.chartType} options={CHART_TYPE_OPTIONS} onChange={(value) => updateCard(card.id, { chartType: value as DashboardCard['chartType'] })} />}
-                        <button onClick={() => setForm((current) => ({ ...current, cards: current.cards.filter((item) => item.id !== card.id) }))} title="移除卡片" aria-label="移除卡片"><X size={14} /></button>
+                      <div className="dashboard-card-title">
+                        <GripVertical className="dashboard-export-exclude dashboard-card-drag-handle" size={16} onPointerDown={(event) => beginInteraction(event, card, 'move')} />
+                        <input className="dashboard-card-title-input" value={card.title} onChange={(event) => updateCard(card.id, { title: event.target.value })} maxLength={160} aria-label="卡片标题" />
+                      </div>
+                      <div className="dashboard-card-menu-wrap dashboard-export-exclude">
+                        <button
+                          type="button"
+                          className={`icon-button compact dashboard-card-menu-trigger ${isMenuOpen ? 'active' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); setActiveMenuCardId(isMenuOpen ? null : card.id) }}
+                          title="卡片设置"
+                          aria-label="卡片设置"
+                        >
+                          <MoreHorizontal size={15} />
+                        </button>
+                        {isMenuOpen && (
+                          <div className="dashboard-card-menu-popover" onClick={(e) => e.stopPropagation()}>
+                            <div className="dashboard-menu-group">
+                              <span className="dashboard-menu-label">视图模式</span>
+                              <div className="dashboard-view-control" role="group" aria-label="卡片视图">
+                                {(['metric', 'chart', 'table'] as const).map((view) => (
+                                  <button key={view} className={card.view === view ? 'active' : ''} onClick={() => updateCard(card.id, { view })}>
+                                    {view === 'metric' ? '指标' : view === 'chart' ? '图表' : '表格'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            {card.view === 'chart' && (
+                              <div className="dashboard-menu-group">
+                                <span className="dashboard-menu-label">图表类型</span>
+                                <SelectControl
+                                  className="dashboard-chart-type-select"
+                                  ariaLabel="选择卡片图表类型"
+                                  value={card.chartType === 'none' ? (run ? inferBestChartType(run) : 'bar') : card.chartType}
+                                  options={CHART_TYPE_OPTIONS}
+                                  onChange={(value) => updateCard(card.id, { chartType: value as DashboardCard['chartType'] })}
+                                />
+                              </div>
+                            )}
+                            <div className="dashboard-menu-divider" />
+                            <button
+                              type="button"
+                              className="dashboard-card-remove-button"
+                              onClick={() => {
+                                setForm((current) => ({ ...current, cards: current.cards.filter((item) => item.id !== card.id) }))
+                                setActiveMenuCardId(null)
+                              }}
+                            >
+                              <Trash2 size={14} />
+                              <span>移除卡片</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </header>
                     <DashboardCardContent card={card} run={run} />

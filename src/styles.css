@@ -3052,10 +3052,12 @@ summary:focus-visible {
 }
 
 .dashboard-card-title {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .dashboard-card-title>svg {
@@ -3076,24 +3078,19 @@ summary:focus-visible {
   touch-action: none;
 }
 
-.dashboard-card-title>div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
 .dashboard-card-title-input {
+  flex: 1 1 auto;
   width: 100%;
   min-width: 0;
   border: 0;
   border-bottom: 1px solid transparent;
   outline: 0;
-  padding: 1px 0;
+  padding: 2px 0;
   overflow: hidden;
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3104,38 +3101,112 @@ summary:focus-visible {
   border-bottom-color: var(--accent);
 }
 
-.dashboard-card-title strong,
-.dashboard-card-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.dashboard-card-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
 }
 
-.dashboard-card-title strong {
-  font-size: 0.8125rem;
-  font-weight: 650;
+.dashboard-card-menu-trigger {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
 }
 
-.dashboard-card-title span {
+.dashboard-card-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 190px;
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.05);
+  animation: dashboardMenuIn 140ms ease-out;
+}
+
+.dashboard-menu-group {
+  display: grid;
+  gap: 6px;
+}
+
+.dashboard-menu-label {
   color: var(--ink-faint);
   font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
-.dashboard-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.dashboard-view-control,
-.dashboard-span-control {
+.dashboard-view-control {
   display: flex;
   align-items: center;
   gap: 2px;
   background: var(--surface);
-  padding: 2px;
-  border-radius: 6px;
+  padding: 3px;
+  border-radius: 7px;
   border: 1px solid var(--rule-soft);
+}
+
+.dashboard-view-control button {
+  flex: 1;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 120ms ease;
+}
+
+.dashboard-view-control button:hover {
+  color: var(--ink);
+}
+
+.dashboard-view-control button.active {
+  background: var(--surface-card);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.dashboard-chart-type-select {
+  width: 100%;
+}
+
+.dashboard-chart-type-select button,
+.dashboard-chart-type-select select,
+.dashboard-chart-type-select span {
+  font-size: 0.75rem !important;
+}
+
+.dashboard-menu-divider {
+  height: 1px;
+  background: var(--rule-soft);
+  margin: 2px -12px;
+}
+
+.dashboard-card-remove-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--danger, #ef4444);
+  font-size: 0.75rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.dashboard-card-remove-button:hover {
+  background: color-mix(in oklch, var(--danger, #ef4444) 10%, transparent);
 }
 
 .dashboard-span-control {
