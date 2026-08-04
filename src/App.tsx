@@ -91,7 +91,7 @@ import type {
   UpdateCheckResult,
   UpdateDownloadProgress,
 } from '../electron/shared/types'
-import { dashboardRequiredRows, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from '../electron/shared/dashboard-grid'
+import { dashboardRequiredRows, findNearestAvailablePosition, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from '../electron/shared/dashboard-grid'
 import novaIconUrl from './assets/nova-icon.svg'
 import { ResultProcess } from './ResultProcess'
 import {
@@ -1913,7 +1913,16 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const [exporting, setExporting] = useState<'html' | 'png' | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [layoutOpen, setLayoutOpen] = useState(false)
-  const [interaction, setInteraction] = useState<{ cardId: string; mode: 'move' | 'resize'; startX: number; startY: number; initial: DashboardCard } | null>(null)
+  const [interaction, setInteraction] = useState<{
+    cardId: string
+    mode: 'move' | 'resize'
+    startX: number
+    startY: number
+    initial: DashboardCard
+    deltaX: number
+    deltaY: number
+    targetRect: { x: number; y: number; width: number; height: number }
+  } | null>(null)
   const exportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2016,8 +2025,21 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const beginInteraction = (event: React.PointerEvent, card: DashboardCard, mode: 'move' | 'resize') => {
     event.preventDefault()
     event.stopPropagation()
+    const target = event.currentTarget as HTMLElement
+    if (target.setPointerCapture) {
+      try { target.setPointerCapture(event.pointerId) } catch {}
+    }
     setDraggingId(card.id)
-    setInteraction({ cardId: card.id, mode, startX: event.clientX, startY: event.clientY, initial: card })
+    setInteraction({
+      cardId: card.id,
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      initial: card,
+      deltaX: 0,
+      deltaY: 0,
+      targetRect: { x: card.x, y: card.y, width: card.width, height: card.height },
+    })
   }
 
   useEffect(() => {
@@ -2028,34 +2050,55 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
       const rect = canvas.getBoundingClientRect()
       const gap = DASHBOARD_GRID_GAP
       const cellWidth = (rect.width - gap * (form.columns - 1)) / form.columns
-      const dx = (event.clientX - interaction.startX) / (cellWidth + gap)
-      const dy = (event.clientY - interaction.startY) / (138 + gap)
-      setForm((current) => {
-        const index = current.cards.findIndex((card) => card.id === interaction.cardId)
-        if (index < 0) return current
-        const cards = [...current.cards]
-        const initial = interaction.initial
-        let candidate: DashboardCard
-        if (interaction.mode === 'move') {
-          candidate = { ...initial, x: Math.max(0, Math.min(current.columns - initial.width, Math.round(initial.x + dx))), y: Math.max(0, Math.round(initial.y + dy)) }
-        } else {
-          const snapped = snapSizeToNeighbors(cards, index, initial.width + dx, initial.height + dy, current.columns)
-          candidate = { ...initial, width: snapped.width, height: snapped.height }
+      const cellHeight = 138
+      const deltaX = event.clientX - interaction.startX
+      const deltaY = event.clientY - interaction.startY
+      const dx = deltaX / (cellWidth + gap)
+      const dy = deltaY / (cellHeight + gap)
+
+      const otherCards = form.cards.filter((card) => card.id !== interaction.cardId)
+      const initial = interaction.initial
+
+      let targetRect = { ...interaction.targetRect }
+
+      if (interaction.mode === 'move') {
+        const targetX = initial.x + dx
+        const targetY = initial.y + dy
+        targetRect = findNearestAvailablePosition(otherCards, initial.width, initial.height, form.columns, targetX, targetY)
+      } else {
+        const cardIndex = form.cards.findIndex((c) => c.id === interaction.cardId)
+        const snapped = snapSizeToNeighbors(form.cards, cardIndex, initial.width + dx, initial.height + dy, form.columns)
+        const candidate = { x: initial.x, y: initial.y, width: snapped.width, height: snapped.height }
+        if (isRectAvailable(otherCards, candidate, form.columns)) {
+          targetRect = candidate
         }
-        const otherRects = cards.filter((_, cardIndex) => cardIndex !== index)
-        if (!isRectAvailable(otherRects, candidate, current.columns)) return current
-        cards[index] = candidate
-        return { ...current, rows: Math.max(current.rows, dashboardRequiredRows(cards, 4)), cards }
-      })
+      }
+
+      setInteraction((current) => current ? { ...current, deltaX, deltaY, targetRect } : null)
     }
-    const end = () => { setInteraction(null); setDraggingId(null) }
+
+    const end = () => {
+      if (interaction) {
+        const { cardId, targetRect } = interaction
+        setForm((current) => {
+          const index = current.cards.findIndex((card) => card.id === cardId)
+          if (index < 0) return current
+          const cards = [...current.cards]
+          cards[index] = { ...cards[index], ...targetRect }
+          return { ...current, rows: Math.max(current.rows, dashboardRequiredRows(cards, 4)), cards }
+        })
+      }
+      setInteraction(null)
+      setDraggingId(null)
+    }
+
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end, { once: true })
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
     }
-  }, [form.columns, interaction])
+  }, [form.cards, form.columns, interaction])
 
   const exportDashboard = async (format: 'html' | 'png') => {
     if (!exportRef.current || !form.cards.length) return
@@ -2111,7 +2154,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         <header className="dashboard-studio-heading dashboard-export-exclude">
           <div className="dashboard-name-fields">
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} maxLength={80} aria-label="看板名称" />
-            {saveState !== 'idle' && <span className={`dashboard-save-state ${saveState}`}>{saveState === 'saving' ? '保存中' : saveState === 'saved' ? '已自动保存' : '保存失败'}</span>}
+            {saveState !== 'idle' && <span className={`dashboard-save-state ${saveState}`}><i className="save-state-dot" />{saveState === 'saving' ? '保存中...' : saveState === 'saved' ? '已自动保存' : '保存失败'}</span>}
           </div>
           <div className="dashboard-actions">
             <button className="primary-button compact" onClick={() => { setLibraryOpen((open) => !open); setLayoutOpen(false); setExportOpen(false) }}><Plus size={15} />添加卡片</button>
@@ -2152,13 +2195,33 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
               <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>
             </div>
             <div className="dashboard-canvas" ref={canvasRef} style={{ gridTemplateColumns: `repeat(${form.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${form.rows}, 138px)` }}>
+              {interaction && (
+                <div
+                  className="dashboard-ghost-card dashboard-export-exclude"
+                  style={{
+                    gridColumn: `${interaction.targetRect.x + 1} / span ${interaction.targetRect.width}`,
+                    gridRow: `${interaction.targetRect.y + 1} / span ${interaction.targetRect.height}`,
+                  }}
+                >
+                  <div className="dashboard-ghost-badge">
+                    {interaction.targetRect.width} × {interaction.targetRect.height}
+                  </div>
+                </div>
+              )}
               {form.cards.map((card) => {
                 const run = runs.find((item) => item.id === card.queryRunId)
+                const isInteracting = interaction?.cardId === card.id
+                const isMove = isInteracting && interaction.mode === 'move'
                 return (
                   <article
                     key={card.id}
-                    className={`dashboard-card ${draggingId === card.id ? 'dragging' : ''}`}
-                    style={{ gridColumn: `${card.x + 1} / span ${card.width}`, gridRow: `${card.y + 1} / span ${card.height}` }}
+                    className={`dashboard-card ${draggingId === card.id ? 'dragging' : ''} ${isInteracting ? 'interacting' : ''} ${isMove ? 'moving' : ''}`}
+                    style={{
+                      gridColumn: `${card.x + 1} / span ${card.width}`,
+                      gridRow: `${card.y + 1} / span ${card.height}`,
+                      transform: isMove ? `translate3d(${interaction.deltaX}px, ${interaction.deltaY}px, 0)` : undefined,
+                      zIndex: isInteracting ? 50 : undefined,
+                    }}
                   >
                     <header>
                       <div className="dashboard-card-title"><GripVertical className="dashboard-export-exclude dashboard-card-drag-handle" size={16} onPointerDown={(event) => beginInteraction(event, card, 'move')} /><div><input className="dashboard-card-title-input" value={card.title} onChange={(event) => updateCard(card.id, { title: event.target.value })} maxLength={160} aria-label="卡片标题" /></div></div>
@@ -2447,8 +2510,8 @@ function TasksView({ tasks, runs, savedSql, sources, onOpenQuery, onDataChange, 
   onDataChange: () => Promise<void>
   showToast: (message: string, tone?: Toast['tone']) => void
 }) {
-  const [tab, setTab] = useState<'tasks' | 'results'>('tasks')
   const [selectedId, setSelectedId] = useState<string | null>(tasks[0]?.id ?? null)
+  const [detailTab, setDetailTab] = useState<'settings' | 'results'>('settings')
   const selected = tasks.find((task) => task.id === selectedId)
   const [form, setForm] = useState<ScheduledTaskInput | null>(selected ? scheduledTaskToInput(selected) : null)
   const [saving, setSaving] = useState(false)
@@ -2491,8 +2554,8 @@ function TasksView({ tasks, runs, savedSql, sources, onOpenQuery, onDataChange, 
     try {
       const updated = await window.nova.runScheduledTask(selected.id)
       await onDataChange()
-      setTab('results')
-      showToast(updated.lastStatus === 'success' ? '任务执行完成，结果已加入结果 Tab' : updated.lastError ?? '任务执行失败', updated.lastStatus === 'success' ? 'success' : 'error')
+      setDetailTab('results')
+      showToast(updated.lastStatus === 'success' ? '任务执行完成，结果已保存到当前任务' : updated.lastError ?? '任务执行失败', updated.lastStatus === 'success' ? 'success' : 'error')
     } catch (error) {
       showToast(errorMessage(error), 'error')
     } finally {
@@ -2512,26 +2575,21 @@ function TasksView({ tasks, runs, savedSql, sources, onOpenQuery, onDataChange, 
 
   const valid = Boolean(form?.name.trim() && form.question.trim() && form.dataSourceId && form.sql.trim())
 
-  const scheduledRuns = runs
-    .filter((run) => Boolean(run.scheduledTaskId || run.scheduledTaskName))
+  const selectedRuns = runs
+    .filter((run) => selected && (run.scheduledTaskId === selected.id || (!run.scheduledTaskId && run.scheduledTaskName === selected.name)))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
   return (
-    <div className="tasks-page">
-      <nav className="tasks-page-tabs" role="tablist" aria-label="定时页面视图">
-        <button role="tab" aria-selected={tab === 'tasks'} className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}><Clock3 size={16} />任务<span>{tasks.length}</span></button>
-        <button role="tab" aria-selected={tab === 'results'} className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}><History size={16} />结果<span>{scheduledRuns.length}</span></button>
-      </nav>
-      {tab === 'tasks' ? <div className="sources-layout tasks-layout">
+    <div className="sources-layout tasks-layout">
       <section className="source-index">
         <div className="source-index-heading">
           <div><h1>定时</h1><span>{tasks.filter((task) => task.enabled).length} 个运行中</span></div>
         </div>
         <div className="source-list task-list">
           {tasks.map((task) => (
-            <button key={task.id} className={`source-item task-item ${selectedId === task.id ? 'active' : ''}`} onClick={() => { setSelectedId(task.id); setForm(scheduledTaskToInput(task)) }}>
+            <button key={task.id} className={`source-item task-item ${selectedId === task.id ? 'active' : ''}`} onClick={() => { setSelectedId(task.id); setForm(scheduledTaskToInput(task)); setDetailTab('settings') }}>
               <span className="task-glyph"><Clock3 size={15} /></span>
-              <span><strong>{task.name}</strong><small>{scheduledTaskLabel(task)}</small></span>
+              <span><strong>{task.name}</strong><small>{scheduledTaskLabel(task)} · {runs.filter((run) => run.scheduledTaskId === task.id || (!run.scheduledTaskId && run.scheduledTaskName === task.name)).length} 次结果</small></span>
               <i className={`status-dot ${!task.enabled ? 'untested' : task.lastStatus === 'error' ? 'failed' : 'connected'}`} title={!task.enabled ? '已暂停' : task.lastStatus === 'error' ? task.lastError ?? '最近执行失败' : '已启用'} />
             </button>
           ))}
@@ -2541,11 +2599,15 @@ function TasksView({ tasks, runs, savedSql, sources, onOpenQuery, onDataChange, 
 
       <section className="source-editor">
         {selected && form ? <>
-          <div className="editor-heading">
+          <div className="editor-heading has-tabs task-editor-heading">
             <div><h2>{selected.name}</h2>{selected.nextRunAt && <span>下次运行 {formatTime(selected.nextRunAt)}</span>}</div>
             <button className="danger-icon-button" onClick={() => void remove()} aria-label="删除定时任务" title="删除定时任务"><Trash2 size={17} /></button>
           </div>
-          <form className="source-form task-form" onSubmit={(event) => { event.preventDefault(); void save() }}>
+          <nav className="source-editor-tabs task-detail-tabs" role="tablist" aria-label={`${selected.name}详情`}>
+            <button role="tab" aria-selected={detailTab === 'settings'} className={detailTab === 'settings' ? 'active' : ''} onClick={() => setDetailTab('settings')}><Clock3 size={15} />任务设置</button>
+            <button role="tab" aria-selected={detailTab === 'results'} className={detailTab === 'results' ? 'active' : ''} onClick={() => setDetailTab('results')}><History size={15} />运行结果<span>{selectedRuns.length}</span></button>
+          </nav>
+          {detailTab === 'settings' ? <form className="source-form task-form" onSubmit={(event) => { event.preventDefault(); void save() }}>
           <label className="field"><span>任务名称<i className="required-mark" aria-hidden="true">*</i></span><input autoFocus value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="每日经营简报" /></label>
           <div className="scheduled-task-origin"><Database size={15} /><div><strong>{sources.find((source) => source.id === form.dataSourceId)?.name ?? selected.dataSourceName}</strong><span>{form.question}</span></div></div>
           <ScheduleFields form={form} update={update} disabled={saving || running} />
@@ -2561,15 +2623,14 @@ function TasksView({ tasks, runs, savedSql, sources, onOpenQuery, onDataChange, 
             <button className="secondary-button" type="button" onClick={() => void runNow()} disabled={running || saving}>{running ? <LoaderCircle size={16} className="spin" /> : <RotateCcw size={16} />}立即运行</button>
             <button className="primary-button" type="submit" disabled={saving || running || !valid}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存任务</button>
           </div>
-          </form>
+          </form> : <ScheduledTaskResults runs={selectedRuns} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} />}
         </> : <div className="task-empty-detail"><Clock3 size={28} /><strong>从查询结果创建定时任务</strong><span>运行一次查询并确认结果后，在结果卡片右上角点击时钟图标。</span><button className="primary-button" type="button" onClick={onOpenQuery}><Search size={16} />去查询</button></div>}
       </section>
-      </div> : <ScheduledResultsView runs={scheduledRuns} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} />}
     </div>
   )
 }
 
-function ScheduledResultsView({ runs, savedSql, onDataChange, showToast }: {
+function ScheduledTaskResults({ runs, savedSql, onDataChange, showToast }: {
   runs: QueryRun[]
   savedSql: SavedSql[]
   onDataChange: () => Promise<void>
@@ -2587,21 +2648,14 @@ function ScheduledResultsView({ runs, savedSql, onDataChange, showToast }: {
   }, [runs, selectedRunId])
 
   return (
-    <div className="sources-layout tasks-layout tasks-results-layout">
-      <section className="source-index">
-        <div className="source-index-heading"><div><h1>结果</h1><span>{runs.length} 次执行</span></div></div>
-        <div className="source-list task-list">
-          {runs.map((run) => <button key={run.id} className={`source-item task-item ${selectedRunId === run.id ? 'active' : ''}`} onClick={() => setSelectedRunId(run.id)}>
-            <span className="task-glyph"><History size={15} /></span>
-            <span><strong>{run.scheduledTaskName ?? '已删除的定时任务'}</strong><small>{formatTime(run.createdAt)} · {run.dataSourceName}</small></span>
-            <i className={`status-dot ${run.status === 'error' ? 'failed' : 'connected'}`} title={run.status === 'error' ? run.error ?? '执行失败' : '执行成功'} />
-          </button>)}
-          {!runs.length && <div className="list-empty compact"><History size={21} /><span>还没有定时执行结果</span></div>}
+    <div className="scheduled-task-results">
+      {selected ? <>
+        <div className="task-results-toolbar">
+          <div><strong>执行记录</strong><span>{runs.length} 次运行</span></div>
+          <SelectControl className="task-result-select" ariaLabel="选择执行记录" value={selected.id} options={runs.map((run) => ({ value: run.id, label: `${formatTime(run.createdAt)} · ${run.status === 'success' ? '成功' : '失败'}` }))} onChange={setSelectedRunId} />
         </div>
-      </section>
-      <section className="source-editor task-result-editor">
-        {selected ? <RunCard run={selected} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} defaultView="table" allowSchedule={false} /> : <div className="task-empty-detail"><History size={28} /><strong>还没有执行结果</strong><span>在任务 Tab 中选择任务并点击立即运行，结果会保留在这里。</span></div>}
-      </section>
+        <div className="task-result-editor"><RunCard run={selected} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} defaultView="table" allowSchedule={false} /></div>
+      </> : <div className="task-empty-detail"><History size={28} /><strong>还没有执行结果</strong><span>点击“立即运行”后，结果会保留在这个任务中。</span></div>}
     </div>
   )
 }

@@ -2608,7 +2608,7 @@ summary:focus-visible {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 256px minmax(0, 1fr);
   background: var(--canvas);
 }
 
@@ -2617,48 +2617,70 @@ summary:focus-visible {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border-right: 1px solid var(--rule);
+  background: color-mix(in oklch, var(--canvas), transparent 20%);
 }
 
 .dashboard-list {
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: 6px;
   overflow-y: auto;
-  padding: 8px;
+  padding: 10px;
 }
 
 .dashboard-list>button {
   width: 100%;
-  min-height: 68px;
+  min-height: 64px;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  border: 0;
-  border-radius: 8px;
+  gap: 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   padding: 10px 12px;
   background: transparent;
   color: var(--ink-soft);
   text-align: left;
+  transition: all 150ms ease;
+  position: relative;
 }
 
 .dashboard-list>button:hover {
   background: var(--surface);
+  color: var(--ink);
 }
 
 .dashboard-list>button.active {
   background: var(--surface-card);
   color: var(--ink);
+  border-color: var(--rule-strong);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.dashboard-list>button.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
 }
 
 .dashboard-list>button>svg {
   color: var(--accent);
+  transition: transform 150ms ease;
+}
+
+.dashboard-list>button.active>svg {
+  transform: scale(1.1);
 }
 
 .dashboard-list>button>span {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .dashboard-list strong,
@@ -2693,40 +2715,50 @@ summary:focus-visible {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   border-bottom: 1px solid var(--rule);
-  padding: 8px 16px;
-  background: color-mix(in oklch, var(--canvas), transparent 4%);
+  padding: 8px 20px;
+  background: color-mix(in oklch, var(--canvas), transparent 2%);
   box-sizing: border-box;
+  backdrop-filter: blur(8px);
 }
 
 .dashboard-name-fields {
   min-width: 0;
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .dashboard-name-fields input {
   width: 100%;
+  max-width: 380px;
   min-width: 0;
   border: 0;
+  border-bottom: 1px solid transparent;
   outline: 0;
-  padding: 0;
+  padding: 4px 0;
   background: transparent;
   color: var(--ink);
+  transition: border-color 150ms ease;
 }
 
 .dashboard-name-fields input:first-child {
   font-family: var(--font-display);
-  font-size: 1.2rem;
-  font-weight: 540;
+  font-size: 1.25rem;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+}
+
+.dashboard-name-fields input:focus {
+  border-bottom-color: var(--accent);
 }
 
 .dashboard-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .dashboard-layout-menu,
@@ -2737,21 +2769,27 @@ summary:focus-visible {
 .dashboard-layout-options,
 .dashboard-export-options {
   position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
+  z-index: 30;
+  top: calc(100% + 8px);
   right: 0;
   border: 1px solid var(--rule-strong);
-  border-radius: 7px;
-  padding: 4px;
+  border-radius: 9px;
+  padding: 6px;
   background: var(--surface-raised);
-  box-shadow: 0 12px 30px rgba(20, 20, 19, 0.13);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+  animation: dashboardMenuIn 140ms ease-out;
+}
+
+@keyframes dashboardMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .dashboard-layout-options {
-  width: 176px;
+  width: 184px;
   display: grid;
-  gap: 2px;
-  padding: 7px;
+  gap: 4px;
+  padding: 8px;
 }
 
 .dashboard-layout-row {
@@ -2760,7 +2798,7 @@ summary:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-left: 7px;
+  padding-left: 6px;
 }
 
 .dashboard-layout-row>span {
@@ -2771,11 +2809,12 @@ summary:focus-visible {
 
 .dashboard-layout-stepper {
   display: grid;
-  grid-template-columns: 28px 30px 28px;
+  grid-template-columns: 28px 32px 28px;
   align-items: center;
   border: 1px solid var(--rule);
   border-radius: 6px;
   overflow: hidden;
+  background: var(--surface);
 }
 
 .dashboard-layout-stepper button {
@@ -2786,7 +2825,8 @@ summary:focus-visible {
   border: 0;
   padding: 0;
   background: transparent;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
+  transition: background 120ms ease;
 }
 
 .dashboard-layout-stepper button:hover:not(:disabled) {
@@ -2811,9 +2851,9 @@ summary:focus-visible {
 }
 
 .dashboard-export-options {
-  min-width: 124px;
+  min-width: 130px;
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .dashboard-export-options button {
@@ -2821,12 +2861,14 @@ summary:focus-visible {
   align-items: center;
   gap: 8px;
   border: 0;
-  border-radius: 5px;
-  padding: 8px 9px;
+  border-radius: 6px;
+  padding: 8px 10px;
   background: transparent;
   color: var(--ink-soft);
   font-size: 0.75rem;
+  font-weight: 500;
   text-align: left;
+  transition: background 120ms ease;
 }
 
 .dashboard-export-options button:hover {
@@ -2835,10 +2877,39 @@ summary:focus-visible {
 }
 
 .dashboard-save-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--ink-faint);
-  font-size: 0.6875rem;
-  line-height: 1.2;
+  font-size: 0.72rem;
+  font-weight: 500;
   white-space: nowrap;
+}
+
+.save-state-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #6366f1);
+}
+
+.dashboard-save-state.saving .save-state-dot {
+  background: #eab308;
+  animation: savePulse 1s infinite alternate ease-in-out;
+}
+
+.dashboard-save-state.saved .save-state-dot {
+  background: #22c55e;
+}
+
+.dashboard-save-state.error .save-state-dot {
+  background: var(--danger, #ef4444);
+}
+
+@keyframes savePulse {
+  from { opacity: 0.3; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1.2); }
 }
 
 .dashboard-save-state.error {
@@ -2854,7 +2925,7 @@ summary:focus-visible {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px;
+  padding: 20px;
 }
 
 .dashboard-export-surface {
@@ -2862,29 +2933,32 @@ summary:focus-visible {
   min-width: 0;
   margin: 0 auto;
   border: 1px solid var(--rule);
-  border-radius: 10px;
-  padding: 24px;
+  border-radius: 14px;
+  padding: 28px;
   background: var(--canvas);
+  background-image: radial-gradient(color-mix(in oklch, var(--ink-faint) 14%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
   box-sizing: border-box;
 }
 
 .dashboard-export-heading {
   display: grid;
   gap: 4px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .dashboard-export-heading>span {
   color: var(--accent);
   font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
 }
 
 .dashboard-export-heading h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: 2.1rem;
   font-weight: 520;
   letter-spacing: -0.035em;
 }
@@ -2896,11 +2970,37 @@ summary:focus-visible {
 }
 
 .dashboard-canvas {
+  position: relative;
   display: grid;
   grid-auto-flow: row dense;
   grid-auto-rows: 138px;
   align-items: stretch;
-  gap: 12px;
+  gap: 14px;
+}
+
+/* 幽灵落点指示框 Ghost Card */
+.dashboard-ghost-card {
+  position: relative;
+  z-index: 10;
+  border: 2px dashed var(--accent, #6366f1);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 24px color-mix(in oklch, var(--accent) 12%, transparent);
+  pointer-events: none;
+  transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
+  display: grid;
+  place-items: center;
+}
+
+.dashboard-ghost-badge {
+  background: var(--accent, #6366f1);
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  letter-spacing: 0.04em;
 }
 
 .dashboard-card {
@@ -2911,25 +3011,44 @@ summary:focus-visible {
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
   background: var(--surface-raised);
-  transition: opacity 120ms, border-color 120ms;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1), box-shadow 180ms ease, border-color 180ms ease, opacity 120ms ease;
+  touch-action: none;
+}
+
+.dashboard-card:hover {
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.03);
+  border-color: color-mix(in oklch, var(--accent) 30%, var(--rule-strong));
+}
+
+.dashboard-card.interacting {
+  transition: none !important;
+}
+
+.dashboard-card.moving {
+  cursor: grabbing !important;
+  opacity: 0.92;
+  box-shadow: 0 20px 40px -6px rgba(0, 0, 0, 0.18), 0 6px 14px rgba(0, 0, 0, 0.08);
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in oklch, var(--accent) 40%, transparent);
 }
 
 .dashboard-card.dragging {
-  opacity: 0.45;
   border-color: var(--accent);
 }
 
 .dashboard-card>header {
-  min-height: 52px;
+  min-height: 50px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--rule-soft);
-  padding: 10px 12px 10px 14px;
+  padding: 8px 12px 8px 14px;
+  background: color-mix(in oklch, var(--surface-card), transparent 30%);
 }
 
 .dashboard-card-title {
@@ -2943,6 +3062,14 @@ summary:focus-visible {
   flex: 0 0 auto;
   color: var(--ink-faint);
   cursor: grab;
+  padding: 2px;
+  border-radius: 4px;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.dashboard-card-title>svg:hover {
+  background: var(--surface);
+  color: var(--accent);
 }
 
 .dashboard-card-drag-handle {
@@ -2959,8 +3086,9 @@ summary:focus-visible {
   width: 100%;
   min-width: 0;
   border: 0;
+  border-bottom: 1px solid transparent;
   outline: 0;
-  padding: 0;
+  padding: 1px 0;
   overflow: hidden;
   background: transparent;
   color: var(--ink);
@@ -2969,10 +3097,11 @@ summary:focus-visible {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: border-color 120ms ease;
 }
 
 .dashboard-card-title-input:focus {
-  border-bottom: 1px solid var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .dashboard-card-title strong,
@@ -2995,7 +3124,7 @@ summary:focus-visible {
 .dashboard-card-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .dashboard-view-control,
@@ -3003,12 +3132,14 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 2px;
+  background: var(--surface);
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--rule-soft);
 }
 
 .dashboard-span-control {
   margin-left: 3px;
-  border-left: 1px solid var(--rule-soft);
-  padding-left: 6px;
 }
 
 .dashboard-span-control>span {
@@ -3020,19 +3151,20 @@ summary:focus-visible {
 
 .dashboard-card-actions button {
   min-width: 28px;
-  height: 28px;
+  height: 26px;
   border: 0;
-  border-radius: 5px;
-  padding: 0 7px;
+  border-radius: 4px;
+  padding: 0 8px;
   background: transparent;
   color: var(--ink-faint);
   font-size: 0.6875rem;
   font-weight: 600;
+  transition: all 120ms ease;
 }
 
 .dashboard-card-actions .dashboard-view-control button {
-  min-width: 34px;
-  padding-inline: 5px;
+  min-width: 36px;
+  padding-inline: 6px;
 }
 
 .dashboard-card-actions .dashboard-span-control button {
@@ -3040,10 +3172,14 @@ summary:focus-visible {
   padding-inline: 0;
 }
 
-.dashboard-card-actions button:hover,
+.dashboard-card-actions button:hover {
+  color: var(--ink);
+}
+
 .dashboard-card-actions button.active {
   background: var(--surface-card);
-  color: var(--ink);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .dashboard-card .chart-wrap {
@@ -3068,21 +3204,25 @@ summary:focus-visible {
 
 .dashboard-card-resize-handle {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 15px;
-  height: 15px;
+  right: 5px;
+  bottom: 5px;
+  width: 18px;
+  height: 18px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 4px;
   background: linear-gradient(135deg, transparent 45%, var(--ink-faint) 46%, var(--ink-faint) 53%, transparent 54%), linear-gradient(135deg, transparent 60%, var(--ink-faint) 61%, var(--ink-faint) 68%, transparent 69%);
   cursor: nwse-resize;
   opacity: 0.45;
   touch-action: none;
+  transition: opacity 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
 
 .dashboard-card-resize-handle:hover {
-  opacity: 0.9;
+  opacity: 1;
+  background-color: color-mix(in oklch, var(--accent) 15%, transparent);
+  transform: scale(1.1);
 }
+
 
 @container (max-width: 620px) {
   .dashboard-card>header {
@@ -3694,48 +3834,13 @@ summary:focus-visible {
   grid-template-columns: 36px minmax(0, 1fr) auto;
 }
 
-.tasks-page {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+.task-editor-heading,
+.task-detail-tabs,
+.scheduled-task-results {
+  max-width: 980px;
 }
 
-.tasks-page-tabs {
-  min-height: 58px;
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  border-bottom: 1px solid var(--rule);
-  padding: 0 28px;
-  background: var(--canvas);
-}
-
-.tasks-page-tabs button {
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 0 13px;
-  background: transparent;
-  color: var(--ink-faint);
-  font-size: 0.8125rem;
-  font-weight: 600;
-}
-
-.tasks-page-tabs button:hover {
-  color: var(--ink);
-}
-
-.tasks-page-tabs button.active {
-  border-bottom-color: var(--accent);
-  color: var(--accent-dark);
-}
-
-.tasks-page-tabs button span {
+.task-detail-tabs button span {
   min-width: 18px;
   height: 18px;
   display: inline-grid;
@@ -3747,22 +3852,46 @@ summary:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.tasks-page-tabs button.active span {
+.task-detail-tabs button.active span {
   background: var(--accent-soft);
   color: var(--accent-dark);
 }
 
-.tasks-results-layout .source-index-heading h1 {
-  margin-bottom: 2px;
+.scheduled-task-results {
+  width: 100%;
 }
 
-.task-result-editor {
-  overflow-y: auto;
+.task-results-toolbar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.task-results-toolbar>div {
+  display: grid;
+  gap: 2px;
+}
+
+.task-results-toolbar strong {
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.task-results-toolbar span {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+.task-result-select {
+  width: 260px;
 }
 
 .task-result-editor>.run-card {
-  max-width: 980px;
-  margin: 0 auto;
+  margin: 0;
 }
 
 .task-glyph {

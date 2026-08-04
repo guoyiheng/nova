@@ -54,3 +54,58 @@ export function snapSizeToNeighbors(cards: DashboardCard[], index: number, width
     height: Math.max(1, Math.round(nearHeight ?? height)),
   }
 }
+
+export function findNearestAvailablePosition(
+  cards: DashboardRect[],
+  width: number,
+  height: number,
+  columns: number,
+  targetX: number,
+  targetY: number,
+  ignoreIndex = -1
+): DashboardRect {
+  const safeWidth = Math.min(columns, Math.max(1, Math.round(width)))
+  const safeHeight = Math.max(1, Math.round(height))
+  const clampedX = Math.max(0, Math.min(columns - safeWidth, Math.round(targetX)))
+  const clampedY = Math.max(0, Math.round(targetY))
+
+  const candidate = { x: clampedX, y: clampedY, width: safeWidth, height: safeHeight }
+  if (isRectAvailable(cards, candidate, columns, ignoreIndex)) {
+    return candidate
+  }
+
+  // 沿辐射范围查找最近的可用位置
+  let bestRect: DashboardRect = candidate
+  let minDistance = Infinity
+
+  for (let radius = 1; radius <= 20; radius++) {
+    let foundInRadius = false
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue
+        const testX = clampedX + dx
+        const testY = clampedY + dy
+        if (testX < 0 || testX + safeWidth > columns || testY < 0) continue
+
+        const testRect = { x: testX, y: testY, width: safeWidth, height: safeHeight }
+        if (isRectAvailable(cards, testRect, columns, ignoreIndex)) {
+          const dist = Math.hypot(testX - targetX, testY - targetY)
+          if (dist < minDistance) {
+            minDistance = dist
+            bestRect = testRect
+            foundInRadius = true
+          }
+        }
+      }
+    }
+    if (foundInRadius) break
+  }
+
+  if (minDistance !== Infinity) {
+    return bestRect
+  }
+
+  // 退化为查找首个空位
+  return findOpenPosition(cards, safeWidth, safeHeight, columns, clampedY)
+}
+

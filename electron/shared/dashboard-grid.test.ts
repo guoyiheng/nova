@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dashboardRequiredRows, findOpenPosition, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from './dashboard-grid.js'
+import { dashboardRequiredRows, findNearestAvailablePosition, findOpenPosition, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from './dashboard-grid.js'
 import type { DashboardCard } from './types.js'
 
 const card = (id: string, x: number, y: number, width: number, height: number): DashboardCard => ({
@@ -21,6 +21,12 @@ describe('dashboard grid', () => {
     expect(isRectAvailable(cards, { x: 1, y: 0, width: 2, height: 2 }, 4)).toBe(false)
   })
 
+  it('finds nearest available position when target collides', () => {
+    const cards = [card('a', 0, 0, 2, 2)]
+    // 试图放置在 (0, 0)，碰撞后吸附到最靠近的空位 (2, 0)
+    expect(findNearestAvailablePosition(cards, 2, 2, 4, 0, 0)).toEqual({ x: 2, y: 0, width: 2, height: 2 })
+  })
+
   it('normalizes legacy positions without overlap', () => {
     const cards = [card('a', 0, 0, 2, 2), card('b', 0, 0, 2, 2)]
     const normalized = normalizeDashboardCards(cards, 4)
@@ -34,3 +40,4 @@ describe('dashboard grid', () => {
     expect(snapSizeToNeighbors(cards, 0, 2.9, 3.05, 6)).toEqual({ width: 3, height: 3 })
   })
 })
+
