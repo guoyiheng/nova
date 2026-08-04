@@ -14,7 +14,10 @@ import type {
   QueryTable,
   SavedSql,
   SavedSqlInput,
+  ScheduledTask,
+  ScheduledTaskInput,
 } from '../shared/types.js'
+import { nextScheduledRun } from './scheduler.js'
 
 type DataSourceRow = {
   id: string
@@ -69,6 +72,24 @@ type ModelChannelRow = {
   model: string
   model_list_json: string
   encrypted_api_key: string | null
+  created_at: string
+  updated_at: string
+}
+
+type ScheduledTaskRow = {
+  id: string
+  name: string
+  data_source_id: string
+  sql: string
+  schedule_kind: ScheduledTask['scheduleKind']
+  interval_minutes: number | null
+  time_of_day: string
+  day_of_week: number | null
+  enabled: number
+  last_run_at: string | null
+  last_status: ScheduledTask['lastStatus']
+  last_error: string | null
+  next_run_at: string | null
   created_at: string
   updated_at: string
 }
@@ -212,6 +233,25 @@ export class Storage {
         refreshed_at TEXT NOT NULL,
         FOREIGN KEY(data_source_id) REFERENCES data_sources(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        data_source_id TEXT NOT NULL,
+        sql TEXT NOT NULL,
+        schedule_kind TEXT NOT NULL,
+        interval_minutes INTEGER,
+        time_of_day TEXT NOT NULL DEFAULT '09:00',
+        day_of_week INTEGER,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run_at TEXT,
+        last_status TEXT,
+        last_error TEXT,
+        next_run_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(data_source_id) REFERENCES data_sources(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(enabled, next_run_at);
     `)
 
     const queryRunColumns = this.db.prepare('PRAGMA table_info(query_runs)').all() as unknown as Array<{ name: string }>
@@ -605,6 +645,88 @@ export class Storage {
     this.db.prepare('DELETE FROM saved_sql WHERE id = ?').run(id)
   }
 
+  listScheduledTasks(): ScheduledTask[] {
+    const rows = this.db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at ASC').all() as unknown as ScheduledTaskRow[]
+    return rows.map((row) => this.mapScheduledTask(row))
+  }
+
+  getScheduledTask(id: string): ScheduledTask | null {
+    const row = this.db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as ScheduledTaskRow | undefined
+    return row ? this.mapScheduledTask(row) : null
+  }
+
+  saveScheduledTask(input: ScheduledTaskInput): ScheduledTask {
+    if (!this.getDataSource(input.dataSourceId)) throw new Error('数据源不存在。')
+    const existing = input.id ? this.getScheduledTask(input.id) : null
+    const id = existing?.id ?? randomUUID()
+    const now = new Date()
+    const nextRunAt = input.enabled ? nextScheduledRun({
+      scheduleKind: input.scheduleKind,
+      intervalMinutes: input.intervalMinutes ?? null,
+      timeOfDay: input.timeOfDay ?? '09:00',
+      dayOfWeek: input.dayOfWeek ?? null,
+    }, now).toISOString() : null
+    this.db.prepare(`
+      INSERT INTO scheduled_tasks (
+        id, name, data_source_id, sql, schedule_kind, interval_minutes, time_of_day, day_of_week,
+        enabled, last_run_at, last_status, last_error, next_run_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        data_source_id = excluded.data_source_id,
+        sql = excluded.sql,
+        schedule_kind = excluded.schedule_kind,
+        interval_minutes = excluded.interval_minutes,
+        time_of_day = excluded.time_of_day,
+        day_of_week = excluded.day_of_week,
+        enabled = excluded.enabled,
+        next_run_at = excluded.next_run_at,
+        updated_at = excluded.updated_at
+    `).run(
+      id,
+      input.name.trim(),
+      input.dataSourceId,
+      input.sql.trim(),
+      input.scheduleKind,
+      input.scheduleKind === 'interval' ? input.intervalMinutes ?? 60 : null,
+      input.timeOfDay ?? '09:00',
+      input.scheduleKind === 'weekly' ? input.dayOfWeek ?? 1 : null,
+      input.enabled ? 1 : 0,
+      existing?.lastRunAt ?? null,
+      existing?.lastStatus ?? null,
+      existing?.lastError ?? null,
+      nextRunAt,
+      existing?.createdAt ?? now.toISOString(),
+      now.toISOString(),
+    )
+    return this.getScheduledTask(id)!
+  }
+
+  deleteScheduledTask(id: string) {
+    this.db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id)
+  }
+
+  listDueScheduledTasks(now = new Date()): ScheduledTask[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM scheduled_tasks
+      WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+      ORDER BY next_run_at ASC
+    `).all(now.toISOString()) as unknown as ScheduledTaskRow[]
+    return rows.map((row) => this.mapScheduledTask(row))
+  }
+
+  completeScheduledTask(id: string, status: NonNullable<ScheduledTask['lastStatus']>, error: string | null, completedAt = new Date()): ScheduledTask {
+    const task = this.getScheduledTask(id)
+    if (!task) throw new Error('定时任务不存在。')
+    const nextRunAt = task.enabled ? nextScheduledRun(task, completedAt).toISOString() : null
+    this.db.prepare(`
+      UPDATE scheduled_tasks
+      SET last_run_at = ?, last_status = ?, last_error = ?, next_run_at = ?, updated_at = ?
+      WHERE id = ?
+    `).run(completedAt.toISOString(), status, error, nextRunAt, completedAt.toISOString(), id)
+    return this.getScheduledTask(id)!
+  }
+
   exportableConfig() {
     const sources = this.listDataSources()
     const sourceNames = new Map(sources.map((source) => [source.id, source.name]))
@@ -743,6 +865,7 @@ export class Storage {
       queryRuns: this.listQueryRuns(),
       savedSql: this.listSavedSql(),
       modelChannels: this.listModelChannels(),
+      scheduledTasks: this.listScheduledTasks(),
     }
   }
 
@@ -765,6 +888,27 @@ export class Storage {
       model: row.model,
       availableModels,
       hasApiKey: this.canDecrypt(row.encrypted_api_key),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  private mapScheduledTask(row: ScheduledTaskRow): ScheduledTask {
+    return {
+      id: row.id,
+      name: row.name,
+      dataSourceId: row.data_source_id,
+      dataSourceName: this.getDataSource(row.data_source_id)?.name ?? '未知数据源',
+      sql: row.sql,
+      scheduleKind: row.schedule_kind,
+      intervalMinutes: row.interval_minutes,
+      timeOfDay: row.time_of_day,
+      dayOfWeek: row.day_of_week,
+      enabled: Boolean(row.enabled),
+      lastRunAt: row.last_run_at,
+      lastStatus: row.last_status,
+      lastError: row.last_error,
+      nextRunAt: row.next_run_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }

@@ -32,6 +32,28 @@ describe('portable configuration', () => {
     expect(channel.name).toBe('默认提供商')
   })
 
+  it('persists scheduled SQL tasks and advances their next run after completion', () => {
+    const source = sourceStorage.saveDataSource({ name: 'Analytics', type: 'postgres' })
+    const task = sourceStorage.saveScheduledTask({
+      name: 'Hourly report',
+      dataSourceId: source.id,
+      sql: 'SELECT 1',
+      scheduleKind: 'interval',
+      intervalMinutes: 60,
+      enabled: true,
+    })
+
+    expect(task.dataSourceName).toBe('Analytics')
+    expect(task.nextRunAt).not.toBeNull()
+    const completed = sourceStorage.completeScheduledTask(task.id, 'success', null, new Date('2026-08-04T02:00:00.000Z'))
+    expect(completed.lastRunAt).toBe('2026-08-04T02:00:00.000Z')
+    expect(completed.nextRunAt).toBe('2026-08-04T03:00:00.000Z')
+    expect(sourceStorage.bootstrap().scheduledTasks).toHaveLength(1)
+
+    sourceStorage.deleteScheduledTask(task.id)
+    expect(sourceStorage.listScheduledTasks()).toEqual([])
+  })
+
   it('exports data sources, model channels and saved SQL with credentials', () => {
     const source = sourceStorage.saveDataSource({
       name: 'Analytics',

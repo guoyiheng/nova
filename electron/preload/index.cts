@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentProgressEvent, AskInput, BatchImportSqlInput, DataSourceInput, InitialSetupInput, ModelChannelInput, ModelListInput, NovaApi, SavedSqlInput, SqlQueryInput, UpdateDownloadProgress } from '../shared/types.js'
+import type { AgentProgressEvent, AskInput, BatchImportSqlInput, DataSourceInput, InitialSetupInput, ModelChannelInput, ModelListInput, NovaApi, SavedSqlInput, ScheduledTaskInput, SqlQueryInput, UpdateDownloadProgress } from '../shared/types.js'
 
 const api: NovaApi = {
   getBootstrap: () => ipcRenderer.invoke('nova:bootstrap'),
@@ -20,6 +20,9 @@ const api: NovaApi = {
   executeSql: (input: SqlQueryInput) => ipcRenderer.invoke('nova:sql:execute', input),
   saveSql: (input: SavedSqlInput) => ipcRenderer.invoke('nova:sql:save', input),
   deleteSavedSql: (id: string) => ipcRenderer.invoke('nova:sql:delete', id),
+  saveScheduledTask: (input: ScheduledTaskInput) => ipcRenderer.invoke('nova:task:save', input),
+  deleteScheduledTask: (id: string) => ipcRenderer.invoke('nova:task:delete', id),
+  runScheduledTask: (id: string) => ipcRenderer.invoke('nova:task:run', id),
   updateQueryRun: (id, patch) => ipcRenderer.invoke('nova:query:update', id, patch),
   exportConfig: () => ipcRenderer.invoke('nova:config:export'),
   importConfig: () => ipcRenderer.invoke('nova:config:import'),

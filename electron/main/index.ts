@@ -12,11 +12,13 @@ import { fetchModelIds } from './models.js'
 import { checkAppUpdate, downloadAppUpdate, openDownloadedUpdate } from './updater.js'
 import { RendererUpdater } from './renderer-updater.js'
 import { extractSchemaCacheStructure, inspectSchemaCache, isSchemaCacheStale, missingSchemaCacheInfo, resolveSchemaSnapshot } from './schema-cache.js'
-import type { AgentProgressEvent, AgentStage, DataSourceInput, QueryTable } from '../shared/types.js'
+import { TaskScheduler } from './scheduler.js'
+import type { AgentProgressEvent, AgentStage, DataSourceInput, QueryTable, ScheduledTask } from '../shared/types.js'
 
 let mainWindow: BrowserWindow | null = null
 let storage: Storage
 let rendererUpdater: RendererUpdater
+let taskScheduler: TaskScheduler
 let rendererReadyTimer: ReturnType<typeof setTimeout> | null = null
 
 const RENDERER_URL = 'nova://app/index.html'
@@ -120,6 +122,18 @@ const batchImportSqlSchema = z.object({
   content: z.string().min(1).max(2_000_000),
 })
 
+const scheduledTaskSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1).max(80),
+  dataSourceId: z.string().uuid(),
+  sql: z.string().trim().min(1).max(200_000),
+  scheduleKind: z.enum(['interval', 'daily', 'weekly']),
+  intervalMinutes: z.number().int().min(15).max(10_080).nullable().optional(),
+  timeOfDay: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  dayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
+  enabled: z.boolean(),
+})
+
 const portableSavedSqlSchema = z.object({
   dataSourceName: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(80),
@@ -162,6 +176,51 @@ function executionSummary(table: QueryTable) {
   return table.affectedRows !== undefined
     ? `影响 ${table.affectedRows} 行`
     : `返回 ${table.rows.length}${table.truncated ? '+' : ''} 行`
+}
+
+async function executeScheduledTask(task: ScheduledTask): Promise<ScheduledTask> {
+  const source = storage.getDataSource(task.dataSourceId)
+  const startedAt = Date.now()
+  const session = new DbhubSession()
+  try {
+    if (!source) throw new Error('任务关联的数据源不存在。')
+    const tools = await session.connect(buildDsn(source, storage.getDataSourceSecret(source.id)))
+    if (!tools.tools.some((tool) => tool.name === 'execute_sql')) throw new Error('DBHub 未提供 SQL 执行工具。')
+    const table = await executeSql(session, task.sql)
+    if (changesSchemaSql(task.sql)) storage.clearSchemaCache(source.id)
+    storage.saveQueryRun({
+      dataSourceId: source.id,
+      dataSourceName: source.name,
+      question: `定时任务：${task.name}`,
+      answer: `定时任务执行完成，${executionSummary(table)}。`,
+      sql: task.sql,
+      table,
+      chart: null,
+      status: 'success',
+      error: null,
+      durationMs: Date.now() - startedAt,
+      mode: 'sql',
+    })
+    return storage.completeScheduledTask(task.id, 'success', null)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '定时任务执行失败。'
+    storage.saveQueryRun({
+      dataSourceId: task.dataSourceId,
+      dataSourceName: source?.name ?? task.dataSourceName,
+      question: `定时任务：${task.name}`,
+      answer: '',
+      sql: task.sql,
+      table: null,
+      chart: null,
+      status: 'error',
+      error: message,
+      durationMs: Date.now() - startedAt,
+      mode: 'sql',
+    })
+    return storage.completeScheduledTask(task.id, 'error', message)
+  } finally {
+    await session.close()
+  }
 }
 
 function createWindow() {
@@ -509,6 +568,20 @@ function registerIpc() {
     storage.deleteSavedSql(z.string().uuid().parse(id))
   })
 
+  ipcMain.handle('nova:task:save', (_event, payload) => {
+    return storage.saveScheduledTask(scheduledTaskSchema.parse(payload))
+  })
+
+  ipcMain.handle('nova:task:delete', (_event, id: string) => {
+    storage.deleteScheduledTask(z.string().uuid().parse(id))
+  })
+
+  ipcMain.handle('nova:task:run', async (_event, id: string) => {
+    const task = storage.getScheduledTask(z.string().uuid().parse(id))
+    if (!task) throw new Error('定时任务不存在。')
+    return executeScheduledTask(task)
+  })
+
   ipcMain.handle('nova:query:update', (_event, id: string, patch) => {
     return storage.updateQueryRun(
       z.string().uuid().parse(id),
@@ -714,6 +787,11 @@ app.whenReady().then(async () => {
     storage.updateDataSourceStatus(demoSource.id, 'connected')
   }
   registerIpc()
+  taskScheduler = new TaskScheduler(
+    (now) => storage.listDueScheduledTasks(now),
+    async (task) => { await executeScheduledTask(task) },
+  )
+  taskScheduler.start()
   createWindow()
 
   app.on('activate', () => {
@@ -725,4 +803,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => storage?.close())
+app.on('before-quit', () => {
+  taskScheduler?.stop()
+  storage?.close()
+})

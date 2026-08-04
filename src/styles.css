@@ -2639,6 +2639,21 @@ summary:focus-visible {
   grid-template-columns: 36px minmax(0, 1fr) auto;
 }
 
+.task-item {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+
+.task-glyph {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--accent-dark);
+}
+
 .model-channel-glyph {
   width: 36px;
   height: 36px;
@@ -3068,6 +3083,110 @@ summary:focus-visible {
 
 .model-channel-form {
   max-width: 720px;
+}
+
+.task-form {
+  max-width: 780px;
+}
+
+.task-sql-field textarea {
+  width: 100%;
+  min-height: 176px;
+  resize: vertical;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  padding: 12px 13px;
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.task-sql-field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.task-enabled-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 13px 14px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  text-align: left;
+}
+
+.task-enabled-toggle>span {
+  width: 36px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--rule-strong);
+  box-sizing: border-box;
+  transition: background-color 150ms;
+}
+
+.task-enabled-toggle>span>i {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.14);
+  transition: transform 150ms;
+}
+
+.task-enabled-toggle.active>span {
+  background: var(--accent);
+}
+
+.task-enabled-toggle.active>span>i {
+  transform: translateX(16px);
+}
+
+.task-enabled-toggle>div,
+.task-last-run>div {
+  display: grid;
+  gap: 2px;
+}
+
+.task-enabled-toggle strong,
+.task-last-run strong {
+  color: var(--ink-strong);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.task-enabled-toggle small,
+.task-last-run span {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+.task-last-run {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  border-block: 1px solid var(--rule);
+  color: var(--green);
+}
+
+.task-last-run.error {
+  color: var(--red);
+}
+
+.task-last-run>svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .provider-picker {

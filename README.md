@@ -27,6 +27,7 @@ Nova is a desktop workspace for exploring databases without losing sight of the 
 - **Built-in demo store** — explore realistic customers, products, orders, and funnel events immediately.
 - **Readable results** — combines narrative answers, query details, tables, and visualizations in one workspace.
 - **Conversion funnels** — run ordered commerce, activation, or subscription funnels against any connected database.
+- **Scheduled SQL** — run saved or custom queries on an interval, daily, or weekly while Nova is available.
 - **Provider presets** — configure OpenAI, DeepSeek, Qwen, Kimi, GLM, or SiliconFlow with only an API key.
 - **Reusable research** — search, pin, and favorite previous queries across multiple data sources.
 - **Local-first storage** — application data stays in Electron's local `userData` directory.

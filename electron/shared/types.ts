@@ -179,6 +179,39 @@ export interface SavedSql {
   updatedAt: string
 }
 
+export type ScheduleKind = 'interval' | 'daily' | 'weekly'
+
+export interface ScheduledTask {
+  id: string
+  name: string
+  dataSourceId: string
+  dataSourceName: string
+  sql: string
+  scheduleKind: ScheduleKind
+  intervalMinutes: number | null
+  timeOfDay: string
+  dayOfWeek: number | null
+  enabled: boolean
+  lastRunAt: string | null
+  lastStatus: 'success' | 'error' | null
+  lastError: string | null
+  nextRunAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ScheduledTaskInput {
+  id?: string
+  name: string
+  dataSourceId: string
+  sql: string
+  scheduleKind: ScheduleKind
+  intervalMinutes?: number | null
+  timeOfDay?: string
+  dayOfWeek?: number | null
+  enabled: boolean
+}
+
 export interface BootstrapData {
   appVersion: string
   dataSources: DataSource[]
@@ -186,6 +219,7 @@ export interface BootstrapData {
   queryRuns: QueryRun[]
   savedSql: SavedSql[]
   modelChannels: ModelChannel[]
+  scheduledTasks: ScheduledTask[]
 }
 
 export interface AskInput {
@@ -275,6 +309,9 @@ export interface NovaApi {
   executeSql: (input: SqlQueryInput) => Promise<QueryRun>
   saveSql: (input: SavedSqlInput) => Promise<SavedSql>
   deleteSavedSql: (id: string) => Promise<void>
+  saveScheduledTask: (input: ScheduledTaskInput) => Promise<ScheduledTask>
+  deleteScheduledTask: (id: string) => Promise<void>
+  runScheduledTask: (id: string) => Promise<ScheduledTask>
   updateQueryRun: (id: string, patch: { isFavorite?: boolean; isPinned?: boolean; chart?: ChartSpec | null }) => Promise<QueryRun>
   exportConfig: () => Promise<{ canceled: boolean; filePath?: string }>
   importConfig: () => Promise<{ canceled: boolean; summary?: ImportSummary }>
