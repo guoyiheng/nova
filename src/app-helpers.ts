@@ -13,7 +13,7 @@ import type {
 export type Page = 'query' | 'dashboards' | 'funnels' | 'tasks' | 'history' | 'sources' | 'models' | 'settings'
 export type Toast = { tone: 'success' | 'error'; message: string }
 export type ResultChartType = Exclude<ChartType, 'none'>
-export type CardView = 'chart' | 'table' | 'json' | 'process'
+export type CardView = 'metric' | 'chart' | 'table' | 'json' | 'process'
 
 export type SelectOption = {
   value: string
@@ -319,9 +319,10 @@ export function inferBestChartType(run: QueryRun): ResultChartType {
 export function initialCardView(run: QueryRun, fallback: 'chart' | 'table' = 'chart'): CardView {
   try {
     const saved = localStorage.getItem(`nova_card_view_${run.id}`)
-    if (saved && ['table', 'chart', 'json', 'process'].includes(saved)) return saved as CardView
+    if (saved && ['metric', 'table', 'chart', 'json', 'process'].includes(saved)) return saved as CardView
   } catch {
     // ignore
   }
+  if (fallback === 'chart' && run.table?.rows.length === 1 && inferChartFields(run)) return 'metric'
   return run.table?.rows.length ? fallback : run.processLogs.length ? 'process' : fallback
 }

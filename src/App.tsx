@@ -21,6 +21,7 @@ import {
   FolderOpen,
   GitMerge,
   GripVertical,
+  Hash,
   History,
   Import,
   Info,
@@ -1108,7 +1109,10 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
   const chartFields = useMemo(() => inferChartFields(run), [run])
   const chartAvailable = Boolean(chartFields)
   const hasData = Boolean(run.table?.rows.length)
-  const effectiveView: CardView = hasData ? view : run.processLogs.length ? 'process' : view
+  const metricAvailable = Boolean(run.table?.rows.length === 1 && chartFields)
+  const effectiveView: CardView = hasData
+    ? view === 'metric' && !metricAvailable ? 'table' : view
+    : run.processLogs.length ? 'process' : view
   const matchingSavedSql = Boolean(run.sql) ? savedSqlForSource(savedSql, run.dataSourceId)
     .filter((item) => item.sql.trim() === run.sql.trim()) : []
   const isSqlSaved = matchingSavedSql.length > 0
@@ -1274,15 +1278,18 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
       {(hasData || run.processLogs.length > 0) && (
         <div className="data-block">
           <div className="data-tabs" role="tablist">
-            {hasData && <button role="tab" aria-selected={effectiveView === 'table'} className={effectiveView === 'table' ? 'active' : ''} onClick={() => changeCardView('table')}><BookOpen size={15} />数据</button>}
+            {metricAvailable && <button role="tab" aria-selected={effectiveView === 'metric'} className={effectiveView === 'metric' ? 'active' : ''} onClick={() => changeCardView('metric')}><Hash size={15} />指标</button>}
             {hasData && chartAvailable && <button role="tab" aria-selected={effectiveView === 'chart'} className={effectiveView === 'chart' ? 'active' : ''} onClick={() => changeCardView('chart')}><BarChart3 size={15} />图表</button>}
+            {hasData && <button role="tab" aria-selected={effectiveView === 'table'} className={effectiveView === 'table' ? 'active' : ''} onClick={() => changeCardView('table')}><BookOpen size={15} />表格</button>}
             {hasData && <button role="tab" aria-selected={effectiveView === 'json'} className={effectiveView === 'json' ? 'active' : ''} onClick={() => changeCardView('json')}><Braces size={15} />JSON</button>}
             {run.processLogs.length > 0 && <button role="tab" aria-selected={effectiveView === 'process'} className={effectiveView === 'process' ? 'active' : ''} onClick={() => changeCardView('process')}><Clock3 size={15} />过程</button>}
             {hasData && <span>{run.table!.rows.length}{run.table!.truncated ? '+' : ''} 行</span>}
           </div>
           {effectiveView === 'process'
             ? <ResultProcess logs={run.processLogs} />
-            : effectiveView === 'chart' && chartAvailable && chartFields
+            : effectiveView === 'metric' && metricAvailable && chartFields
+              ? <ResultMetric run={run} fields={chartFields} />
+              : effectiveView === 'chart' && chartAvailable && chartFields
               ? <ResultChart run={run} type={chartType} fields={chartFields} onTypeChange={(newType) => void changeChartType(newType)} />
               : effectiveView === 'json'
                 ? <ResultJson run={run} showToast={showToast} />
@@ -1342,6 +1349,18 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
         />
       )}
     </article>
+  )
+}
+
+function ResultMetric({ run, fields }: { run: QueryRun; fields: ChartFields }) {
+  const row = run.table?.rows[0]
+  const value = numericValue(row?.[fields.yKey])
+  return (
+    <div className="result-metric">
+      <strong>{value === null ? String(row?.[fields.yKey] ?? '—') : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value)}</strong>
+      <span>{fields.yKey}</span>
+      {row?.[fields.categoryKey] !== undefined && fields.categoryKey !== fields.yKey && <small>{String(row[fields.categoryKey])}</small>}
+    </div>
   )
 }
 
@@ -1834,14 +1853,7 @@ function DashboardCardContent({ card, run }: { card: DashboardCard; run: QueryRu
   if (!run?.table?.rows.length) return <div className="dashboard-card-empty"><CircleAlert size={18} /><span>原查询结果不可用</span></div>
   const fields = inferChartFields(run)
   if (card.view === 'metric' && fields) {
-    const value = numericValue(run.table.rows[0]?.[fields.yKey])
-    return (
-      <div className="dashboard-metric">
-        <strong>{value === null ? String(run.table.rows[0]?.[fields.yKey] ?? '—') : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value)}</strong>
-        <span>{fields.yKey}</span>
-        {run.table.rows[0]?.[fields.categoryKey] !== undefined && fields.categoryKey !== fields.yKey && <small>{String(run.table.rows[0]?.[fields.categoryKey])}</small>}
-      </div>
-    )
+    return <ResultMetric run={run} fields={fields} />
   }
   if (card.view === 'chart' && fields) {
     return <ResultChart run={run} type={inferBestChartType(run)} fields={fields} onTypeChange={() => undefined} readonly />

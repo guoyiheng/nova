@@ -2755,7 +2755,7 @@ summary:focus-visible {
   min-height: 220px;
 }
 
-.dashboard-metric {
+.result-metric {
   min-height: 220px;
   display: grid;
   place-content: center;
@@ -2763,7 +2763,7 @@ summary:focus-visible {
   padding: 18px;
 }
 
-.dashboard-metric strong {
+.result-metric strong {
   color: var(--ink);
   font-family: var(--font-display);
   font-size: clamp(2.6rem, 6vw, 4.5rem);
@@ -2772,14 +2772,14 @@ summary:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.dashboard-metric span {
+.result-metric span {
   margin-top: 5px;
   color: var(--ink-soft);
   font-size: 0.8125rem;
   font-weight: 600;
 }
 
-.dashboard-metric small {
+.result-metric small {
   margin-top: 3px;
   color: var(--ink-faint);
   font-size: 0.6875rem;
