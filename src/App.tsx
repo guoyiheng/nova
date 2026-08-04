@@ -1871,6 +1871,8 @@ function emptyDashboard(): DashboardInput {
   return { name: '经营看板', description: '', columns: 3, rows: 4, cards: [] }
 }
 
+const DASHBOARD_GRID_GAP = 12
+
 function htmlAttribute(value: string) {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -1910,6 +1912,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [exporting, setExporting] = useState<'html' | 'png' | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [layoutOpen, setLayoutOpen] = useState(false)
   const [interaction, setInteraction] = useState<{ cardId: string; mode: 'move' | 'resize'; startX: number; startY: number; initial: DashboardCard } | null>(null)
   const exportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -2023,7 +2026,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
       const canvas = canvasRef.current
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
-      const gap = 16
+      const gap = DASHBOARD_GRID_GAP
       const cellWidth = (rect.width - gap * (form.columns - 1)) / form.columns
       const dx = (event.clientX - interaction.startX) / (cellWidth + gap)
       const dy = (event.clientY - interaction.startY) / (138 + gap)
@@ -2086,7 +2089,6 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const availableRuns = runs.filter((run) => run.status === 'success' && run.table?.rows.length && (
     !normalizedSearch || `${run.question} ${run.dataSourceName}`.toLocaleLowerCase().includes(normalizedSearch)
   ))
-  const dashboardSurfaceWidth = Math.max(1060, form.columns * 296 + 68)
 
   return (
     <div className="dashboard-page">
@@ -2109,28 +2111,43 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         <header className="dashboard-studio-heading dashboard-export-exclude">
           <div className="dashboard-name-fields">
             <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} maxLength={80} aria-label="看板名称" />
+            {saveState !== 'idle' && <span className={`dashboard-save-state ${saveState}`}>{saveState === 'saving' ? '保存中' : saveState === 'saved' ? '已自动保存' : '保存失败'}</span>}
           </div>
           <div className="dashboard-actions">
-            <div className="dashboard-grid-control" role="group" aria-label="看板画布行列">
-              <LayoutGrid size={15} />
-              <span>{form.rows} 行 × {form.columns} 列</span>
-              <button type="button" onClick={() => updateRows(form.rows - 1)} disabled={form.rows <= dashboardRequiredRows(form.cards, 2)} title="减少行数" aria-label="减少行数"><Minus size={13} /></button>
-              <button type="button" onClick={() => updateRows(form.rows + 1)} title="增加行数" aria-label="增加行数"><Plus size={13} /></button>
-              <button type="button" onClick={() => updateColumns(form.columns - 1)} disabled={form.columns <= 2} title="减少列数" aria-label="减少列数"><Minus size={13} /></button>
-              <button type="button" onClick={() => updateColumns(form.columns + 1)} disabled={form.columns >= 8} title="增加列数" aria-label="增加列数"><Plus size={13} /></button>
+            <button className="primary-button compact" onClick={() => { setLibraryOpen((open) => !open); setLayoutOpen(false); setExportOpen(false) }}><Plus size={15} />添加卡片</button>
+            <div className="dashboard-layout-menu">
+              <button className="secondary-button compact" onClick={() => { setLayoutOpen((open) => !open); setExportOpen(false) }} aria-expanded={layoutOpen}><LayoutGrid size={15} />布局 {form.columns} × {form.rows}<ChevronDown size={13} /></button>
+              {layoutOpen && (
+                <div className="dashboard-layout-options">
+                  <div className="dashboard-layout-row">
+                    <span>列数</span>
+                    <div className="dashboard-layout-stepper" role="group" aria-label="看板列数">
+                      <button type="button" onClick={() => updateColumns(form.columns - 1)} disabled={form.columns <= 2} aria-label="减少列数"><Minus size={13} /></button>
+                      <output>{form.columns}</output>
+                      <button type="button" onClick={() => updateColumns(form.columns + 1)} disabled={form.columns >= 8} aria-label="增加列数"><Plus size={13} /></button>
+                    </div>
+                  </div>
+                  <div className="dashboard-layout-row">
+                    <span>行数</span>
+                    <div className="dashboard-layout-stepper" role="group" aria-label="看板行数">
+                      <button type="button" onClick={() => updateRows(form.rows - 1)} disabled={form.rows <= dashboardRequiredRows(form.cards, 2)} aria-label="减少行数"><Minus size={13} /></button>
+                      <output>{form.rows}</output>
+                      <button type="button" onClick={() => updateRows(form.rows + 1)} aria-label="增加行数"><Plus size={13} /></button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            {selected && <button className="danger-icon-button" onClick={() => void removeDashboard()} aria-label="删除看板" title="删除看板"><Trash2 size={16} /></button>}
-            <button className="secondary-button compact" onClick={() => setLibraryOpen((open) => !open)}><Plus size={15} />添加卡片</button>
             <div className="dashboard-export-menu">
-              <button className="secondary-button compact" onClick={() => setExportOpen((open) => !open)} disabled={Boolean(exporting) || !form.cards.length}><Download size={15} />导出<ChevronDown size={13} /></button>
+              <button className="secondary-button compact" onClick={() => { setExportOpen((open) => !open); setLayoutOpen(false) }} disabled={Boolean(exporting) || !form.cards.length}><Download size={15} />导出<ChevronDown size={13} /></button>
               {exportOpen && <div className="dashboard-export-options"><button onClick={() => void exportDashboard('html')}><FileCode2 size={15} />HTML</button><button onClick={() => void exportDashboard('png')}><Download size={15} />图片</button></div>}
             </div>
-            <span className={`dashboard-save-state ${saveState}`}>{saveState === 'saving' ? '保存中' : saveState === 'saved' ? '已自动保存' : saveState === 'error' ? '保存失败' : ''}</span>
+            {selected && <button className="danger-icon-button dashboard-delete-button" onClick={() => void removeDashboard()} aria-label="删除看板" title="删除看板"><Trash2 size={16} /></button>}
           </div>
         </header>
 
         <div className="dashboard-scroll-area">
-          <div className="dashboard-export-surface" ref={exportRef} style={{ width: `${dashboardSurfaceWidth}px` }}>
+          <div className="dashboard-export-surface" ref={exportRef}>
             <div className="dashboard-export-heading">
               <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>
             </div>
