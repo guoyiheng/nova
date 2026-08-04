@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dashboardRequiredRows, findNearestAvailablePosition, findOpenPosition, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from './dashboard-grid.js'
+import { dashboardRequiredRows, findNearestAvailablePosition, findOpenPosition, isRectAvailable, normalizeDashboardCards, pushLayoutCollisions, snapSizeToNeighbors } from './dashboard-grid.js'
 import type { DashboardCard } from './types.js'
 
 const card = (id: string, x: number, y: number, width: number, height: number): DashboardCard => ({
@@ -23,8 +23,14 @@ describe('dashboard grid', () => {
 
   it('finds nearest available position when target collides', () => {
     const cards = [card('a', 0, 0, 2, 2)]
-    // 试图放置在 (0, 0)，碰撞后吸附到最靠近的空位 (2, 0)
     expect(findNearestAvailablePosition(cards, 2, 2, 4, 0, 0)).toEqual({ x: 2, y: 0, width: 2, height: 2 })
+  })
+
+  it('pushes colliding cards downward smoothly when moving or resizing', () => {
+    const cards = [card('a', 0, 0, 2, 2), card('b', 0, 2, 2, 2)]
+    // 将卡片 a 扩大到高度 3，导致卡片 b 被向下推移到 y = 3
+    const pushed = pushLayoutCollisions(cards, 'a', { x: 0, y: 0, width: 2, height: 3 }, 4)
+    expect(pushed.find((c) => c.id === 'b')?.y).toBe(3)
   })
 
   it('normalizes legacy positions without overlap', () => {
@@ -40,4 +46,5 @@ describe('dashboard grid', () => {
     expect(snapSizeToNeighbors(cards, 0, 2.9, 3.05, 6)).toEqual({ width: 3, height: 3 })
   })
 })
+
 

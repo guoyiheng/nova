@@ -109,3 +109,62 @@ export function findNearestAvailablePosition(
   return findOpenPosition(cards, safeWidth, safeHeight, columns, clampedY)
 }
 
+/**
+ * 当移动或调整某个卡片大小时，若与其他卡片重叠，自动下移/推挤重叠的卡片
+ */
+export function pushLayoutCollisions(
+  cards: DashboardCard[],
+  activeId: string,
+  targetRect: DashboardRect,
+  columns: number
+): DashboardCard[] {
+  const result = cards.map((c) => ({ ...c }))
+  const activeIndex = result.findIndex((c) => c.id === activeId)
+  if (activeIndex < 0) return result
+
+  const safeWidth = Math.min(columns, Math.max(1, Math.round(targetRect.width)))
+  const safeHeight = Math.max(1, Math.round(targetRect.height))
+  const safeX = Math.max(0, Math.min(columns - safeWidth, Math.round(targetRect.x)))
+  const safeY = Math.max(0, Math.round(targetRect.y))
+
+  result[activeIndex] = {
+    ...result[activeIndex],
+    x: safeX,
+    y: safeY,
+    width: safeWidth,
+    height: safeHeight,
+  }
+
+  // 迭代消解重叠（推挤队列）
+  let changed = true
+  let iterations = 0
+  const maxIterations = 100
+
+  while (changed && iterations < maxIterations) {
+    changed = false
+    iterations++
+
+    for (let i = 0; i < result.length; i++) {
+      for (let j = 0; j < result.length; j++) {
+        if (i === j) continue
+        const a = result[i]
+        const b = result[j]
+
+        if (rectsOverlap(a, b)) {
+          // 如果 i 是 activeCard 或者 i 在 b 的上方/相同高度，推挤 b 向下
+          if (i === activeIndex || a.y <= b.y) {
+            b.y = a.y + a.height
+            changed = true
+          } else {
+            a.y = b.y + b.height
+            changed = true
+          }
+        }
+      }
+    }
+  }
+
+  return result
+}
+
+

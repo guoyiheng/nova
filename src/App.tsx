@@ -91,7 +91,7 @@ import type {
   UpdateCheckResult,
   UpdateDownloadProgress,
 } from '../electron/shared/types'
-import { dashboardRequiredRows, findNearestAvailablePosition, isRectAvailable, normalizeDashboardCards, snapSizeToNeighbors } from '../electron/shared/dashboard-grid'
+import { dashboardRequiredRows, findNearestAvailablePosition, isRectAvailable, normalizeDashboardCards, pushLayoutCollisions, snapSizeToNeighbors } from '../electron/shared/dashboard-grid'
 import novaIconUrl from './assets/nova-icon.svg'
 import { ResultProcess } from './ResultProcess'
 import {
@@ -1989,6 +1989,8 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
     if (form.cards.some((card) => card.queryRunId === run.id) || form.cards.length >= 24) return
     const fields = inferChartFields(run)
     const view: DashboardCard['view'] = run.table?.rows.length === 1 && fields ? 'metric' : fields ? 'chart' : 'table'
+    const width = view === 'metric' ? 1 : Math.min(3, form.columns)
+    const height = view === 'metric' ? 1 : 3
     setForm((current) => ({
       ...current,
       rows: Math.max(current.rows, dashboardRequiredRows(current.cards, 4)),
@@ -2000,8 +2002,8 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         chartType: run.chart?.type ?? (fields ? inferBestChartType(run) : 'none'),
         x: 0,
         y: 0,
-        width: view === 'metric' ? 1 : Math.min(2, current.columns),
-        height: 2,
+        width,
+        height,
       }], current.columns),
     }))
   }
@@ -2050,28 +2052,28 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
       const rect = canvas.getBoundingClientRect()
       const gap = DASHBOARD_GRID_GAP
       const cellWidth = (rect.width - gap * (form.columns - 1)) / form.columns
-      const cellHeight = 138
+      const cellHeight = 168
       const deltaX = event.clientX - interaction.startX
       const deltaY = event.clientY - interaction.startY
       const dx = deltaX / (cellWidth + gap)
       const dy = deltaY / (cellHeight + gap)
 
-      const otherCards = form.cards.filter((card) => card.id !== interaction.cardId)
       const initial = interaction.initial
-
       let targetRect = { ...interaction.targetRect }
 
       if (interaction.mode === 'move') {
         const targetX = initial.x + dx
         const targetY = initial.y + dy
-        targetRect = findNearestAvailablePosition(otherCards, initial.width, initial.height, form.columns, targetX, targetY)
+        targetRect = {
+          x: Math.max(0, Math.min(form.columns - initial.width, Math.round(targetX))),
+          y: Math.max(0, Math.round(targetY)),
+          width: initial.width,
+          height: initial.height,
+        }
       } else {
         const cardIndex = form.cards.findIndex((c) => c.id === interaction.cardId)
         const snapped = snapSizeToNeighbors(form.cards, cardIndex, initial.width + dx, initial.height + dy, form.columns)
-        const candidate = { x: initial.x, y: initial.y, width: snapped.width, height: snapped.height }
-        if (isRectAvailable(otherCards, candidate, form.columns)) {
-          targetRect = candidate
-        }
+        targetRect = { x: initial.x, y: initial.y, width: snapped.width, height: snapped.height }
       }
 
       setInteraction((current) => current ? { ...current, deltaX, deltaY, targetRect } : null)
@@ -2083,9 +2085,8 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         setForm((current) => {
           const index = current.cards.findIndex((card) => card.id === cardId)
           if (index < 0) return current
-          const cards = [...current.cards]
-          cards[index] = { ...cards[index], ...targetRect }
-          return { ...current, rows: Math.max(current.rows, dashboardRequiredRows(cards, 4)), cards }
+          const pushedCards = pushLayoutCollisions(current.cards, cardId, targetRect, current.columns)
+          return { ...current, rows: Math.max(current.rows, dashboardRequiredRows(pushedCards, 4)), cards: pushedCards }
         })
       }
       setInteraction(null)
@@ -2194,7 +2195,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
             <div className="dashboard-export-heading">
               <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>
             </div>
-            <div className="dashboard-canvas" ref={canvasRef} style={{ gridTemplateColumns: `repeat(${form.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${form.rows}, 138px)` }}>
+            <div className="dashboard-canvas" ref={canvasRef} style={{ gridTemplateColumns: `repeat(${form.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${form.rows}, 168px)` }}>
               {interaction && (
                 <div
                   className="dashboard-ghost-card dashboard-export-exclude"
