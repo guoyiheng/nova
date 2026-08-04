@@ -32,6 +32,14 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('按对象聚合时也要返回对象名称，不要只按 ID 分组')
     expect(SYSTEM_PROMPT).toContain('除非用户明确询问 ID，否则不要把内部 ID 当作主要结论')
     expect(SYSTEM_PROMPT).toContain('给出可展示的步骤说明')
+    expect(SYSTEM_PROMPT).toContain('自动从结构缓存识别事件表')
+    expect(SYSTEM_PROMPT).toContain('不能把各事件独立计数冒充漏斗')
+  })
+})
+
+describe('funnel intent guidance', () => {
+  it('guides smart queries to produce ordered distinct-user stages', () => {
+    expect(buildIntentGuidance('分析注册到支付的漏斗并指出流失点')).toContain('stage 和 users')
   })
 })
 

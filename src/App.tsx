@@ -19,7 +19,6 @@ import {
   ExternalLink,
   FileCode2,
   FolderOpen,
-  GitMerge,
   GripVertical,
   Hash,
   History,
@@ -295,7 +294,6 @@ export function App() {
         <nav className="primary-nav" aria-label="主导航">
           <NavButton active={page === 'query'} label="查询" icon={Search} onClick={() => setPage('query')} />
           <NavButton active={page === 'dashboards'} label="看板" icon={LayoutDashboard} onClick={() => setPage('dashboards')} />
-          <NavButton active={page === 'funnels'} label="漏斗" icon={GitMerge} onClick={() => setPage('funnels')} />
           <NavButton active={page === 'tasks'} label="定时" icon={Clock3} onClick={() => setPage('tasks')} />
           <NavButton active={page === 'history'} label="历史" icon={History} onClick={() => setPage('history')} />
         </nav>
@@ -307,7 +305,7 @@ export function App() {
 
       <section className="workspace">
         <main id="main-content" className="main-content">
-          {page === 'query' && (
+          <div className={page === 'query' ? 'page-panel' : 'page-panel page-panel-hidden'}>
             <QueryView
               data={data}
               activeSource={activeSource}
@@ -317,7 +315,7 @@ export function App() {
               onDataChange={refresh}
               showToast={showToast}
             />
-          )}
+          </div>
           {page === 'dashboards' && <DashboardsView dashboards={data.dashboards ?? []} runs={data.queryRuns} onDataChange={refresh} showToast={showToast} />}
           {page === 'history' && (
             <HistoryView
@@ -332,7 +330,6 @@ export function App() {
               showToast={showToast}
             />
           )}
-          {page === 'funnels' && <FunnelView data={data} onDataChange={refresh} showToast={showToast} />}
           {page === 'tasks' && <TasksView tasks={data.scheduledTasks ?? []} runs={data.queryRuns} savedSql={data.savedSql} sources={data.dataSources} onOpenQuery={openQueryAtBottom} onDataChange={refresh} showToast={showToast} />}
         </main>
       </section>
@@ -1109,7 +1106,7 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
   const chartFields = useMemo(() => inferChartFields(run), [run])
   const chartAvailable = Boolean(chartFields)
   const hasData = Boolean(run.table?.rows.length)
-  const metricAvailable = Boolean(run.table?.rows.length === 1 && chartFields)
+  const metricAvailable = Boolean(run.table?.rows.length && chartFields)
   const effectiveView: CardView = hasData
     ? view === 'metric' && !metricAvailable ? 'table' : view
     : run.processLogs.length ? 'process' : view
@@ -1361,13 +1358,28 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
 }
 
 function ResultMetric({ run, fields }: { run: QueryRun; fields: ChartFields }) {
-  const row = run.table?.rows[0]
-  const value = numericValue(row?.[fields.yKey])
+  const rows = run.table?.rows ?? []
+  const keys = rows.length === 1 && fields.numericKeys.length > 1 ? fields.numericKeys : [fields.yKey]
+  const items = rows.length === 1 && fields.numericKeys.length > 1
+    ? keys.map((key) => ({ label: key, value: rows[0]?.[key], detail: rows[0]?.[fields.categoryKey] }))
+    : rows.slice(0, 12).flatMap((row) => keys.map((key) => ({
+      label: rows.length > 1 && fields.categoryKey !== key ? String(row[fields.categoryKey] ?? '—') : key,
+      value: row[key],
+      detail: rows.length > 1 && fields.numericKeys.length > 1 ? key : undefined,
+    })))
+  const formatValue = (value: unknown) => {
+    const numeric = numericValue(value)
+    return numeric === null ? String(value ?? '—') : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(numeric)
+  }
   return (
-    <div className="result-metric">
-      <strong>{value === null ? String(row?.[fields.yKey] ?? '—') : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value)}</strong>
-      <span>{fields.yKey}</span>
-      {row?.[fields.categoryKey] !== undefined && fields.categoryKey !== fields.yKey && <small>{String(row[fields.categoryKey])}</small>}
+    <div className={`result-metric ${items.length > 1 ? 'result-metric-list' : ''}`}>
+      {items.map((item, index) => (
+        <div className="result-metric-item" key={`${item.label}-${index}`}>
+          <strong>{formatValue(item.value)}</strong>
+          <span>{item.label}</span>
+          {item.detail !== undefined && item.detail !== item.label && <small>{String(item.detail)}</small>}
+        </div>
+      ))}
     </div>
   )
 }
@@ -1513,10 +1525,13 @@ function ResultChart({ run, type, fields, onTypeChange, readonly = false, fill =
 
 function ResultFunnel({ run, fields }: { run: QueryRun; fields: ChartFields }) {
   if (!run.table) return null
+  const categoryKey = run.chart?.xKey && run.table.columns.includes(run.chart.xKey) ? run.chart.xKey : fields.categoryKey
+  const valueKey = run.chart?.yKey && run.table.columns.includes(run.chart.yKey) ? run.chart.yKey : fields.yKey
   const rows = run.table.rows.slice(0, 12).map((row, index) => ({
-    stage: String(row[fields.categoryKey] ?? index + 1),
-    users: Math.max(0, numericValue(row[fields.yKey]) ?? 0),
-  }))
+    stage: String(row[categoryKey] ?? index + 1),
+    users: Math.max(0, numericValue(row[valueKey]) ?? 0),
+  })).filter((row) => row.stage.trim() && Number.isFinite(row.users))
+  if (!rows.length) return <div className="chart-empty">没有可用于漏斗的阶段数据</div>
   const maximum = Math.max(...rows.map((row) => row.users), 1)
   const baseline = rows[0]?.users ?? 0
 

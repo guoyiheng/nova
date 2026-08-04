@@ -18,6 +18,15 @@ describe('initialPage', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('redirects the removed funnel route to smart query', () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'funnels' })
+    try {
+      expect(initialPage()).toBe('query')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 const savedSql: SavedSql[] = [

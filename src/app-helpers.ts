@@ -10,7 +10,7 @@ import type {
   SavedSql,
 } from '../electron/shared/types'
 
-export type Page = 'query' | 'dashboards' | 'funnels' | 'tasks' | 'history'
+export type Page = 'query' | 'dashboards' | 'tasks' | 'history'
 export type Toast = { tone: 'success' | 'error'; message: string }
 export type ResultChartType = Exclude<ChartType, 'none'>
 export type CardView = 'metric' | 'chart' | 'table' | 'json' | 'process'
@@ -198,7 +198,8 @@ export function formatBytes(value?: number) {
 export function initialPage(): Page {
   try {
     const saved = localStorage.getItem('nova_active_page')
-    if (saved && ['query', 'dashboards', 'funnels', 'tasks', 'history'].includes(saved)) return saved as Page
+    if (saved === 'funnels') return 'query'
+    if (saved && ['query', 'dashboards', 'tasks', 'history'].includes(saved)) return saved as Page
   } catch {
     // ignore
   }
@@ -269,9 +270,10 @@ export function inferChartFields(run: QueryRun): ChartFields | null {
 
   const requestedX = run.chart?.xKey
   const requestedY = run.chart?.yKey
+  const semanticCategory = run.table.columns.find((column) => /stage|step|event|阶段|步骤|事件|路径|环节/i.test(column))
   const categoryKey = requestedX && run.table.columns.includes(requestedX)
     ? requestedX
-    : run.table.columns.find((column) => !numericKeys.includes(column)) ?? run.table.columns[0]
+    : semanticCategory ?? run.table.columns.find((column) => !numericKeys.includes(column)) ?? run.table.columns[0]
   const yKey = requestedY && numericKeys.includes(requestedY) ? requestedY : numericKeys[0]
   const xNumericKey = requestedX && numericKeys.includes(requestedX) && requestedX !== yKey
     ? requestedX
