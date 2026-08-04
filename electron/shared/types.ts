@@ -164,6 +164,8 @@ export interface QueryRun {
   durationMs: number
   mode: QueryMode
   model?: string | null
+  scheduledTaskId?: string | null
+  scheduledTaskName?: string | null
   processLogs: AgentProgressEvent[]
   isFavorite: boolean
   isPinned: boolean

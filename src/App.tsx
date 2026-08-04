@@ -333,7 +333,7 @@ export function App() {
             />
           )}
           {page === 'funnels' && <FunnelView data={data} onDataChange={refresh} showToast={showToast} />}
-          {page === 'tasks' && <TasksView tasks={data.scheduledTasks ?? []} sources={data.dataSources} onOpenQuery={openQueryAtBottom} onDataChange={refresh} showToast={showToast} />}
+          {page === 'tasks' && <TasksView tasks={data.scheduledTasks ?? []} runs={data.queryRuns} savedSql={data.savedSql} sources={data.dataSources} onOpenQuery={openQueryAtBottom} onDataChange={refresh} showToast={showToast} />}
         </main>
       </section>
 
@@ -1084,7 +1084,7 @@ function HighlightSql({ sql }: { sql: string }) {
   return <>{tokens}</>
 }
 
-function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart', tableFocused = false, allowPin = false, onRetry }: {
+function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart', tableFocused = false, allowPin = false, allowSchedule = true, onRetry }: {
   run: QueryRun
   savedSql: SavedSql[]
   onDataChange: () => Promise<void>
@@ -1092,6 +1092,7 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
   defaultView?: 'chart' | 'table'
   tableFocused?: boolean
   allowPin?: boolean
+  allowSchedule?: boolean
   onRetry?: (run: QueryRun) => Promise<void>
 }) {
   const [view, setView] = useState<CardView>(() => initialCardView(run, defaultView))
@@ -1266,7 +1267,7 @@ function RunCard({ run, savedSql, onDataChange, showToast, defaultView = 'chart'
               <RotateCcw size={17} className={retrying ? 'spin' : ''} />
             </button>
           )}
-          {run.status === 'success' && Boolean(run.sql.trim()) && (
+          {allowSchedule && run.status === 'success' && Boolean(run.sql.trim()) && (
             <button className="icon-button" onClick={() => setScheduleOpen(true)} aria-label="创建定时任务" title="创建定时任务">
               <Clock3 size={17} />
             </button>
@@ -2405,13 +2406,16 @@ function CreateScheduledTaskModal({ run, onClose, onDataChange, showToast }: {
   )
 }
 
-function TasksView({ tasks, sources, onOpenQuery, onDataChange, showToast }: {
+function TasksView({ tasks, runs, savedSql, sources, onOpenQuery, onDataChange, showToast }: {
   tasks: ScheduledTask[]
+  runs: QueryRun[]
+  savedSql: SavedSql[]
   sources: DataSource[]
   onOpenQuery: () => void
   onDataChange: () => Promise<void>
   showToast: (message: string, tone?: Toast['tone']) => void
 }) {
+  const [tab, setTab] = useState<'tasks' | 'results'>('tasks')
   const [selectedId, setSelectedId] = useState<string | null>(tasks[0]?.id ?? null)
   const selected = tasks.find((task) => task.id === selectedId)
   const [form, setForm] = useState<ScheduledTaskInput | null>(selected ? scheduledTaskToInput(selected) : null)
@@ -2455,7 +2459,8 @@ function TasksView({ tasks, sources, onOpenQuery, onDataChange, showToast }: {
     try {
       const updated = await window.nova.runScheduledTask(selected.id)
       await onDataChange()
-      showToast(updated.lastStatus === 'success' ? '任务执行完成，可在历史中查看结果' : updated.lastError ?? '任务执行失败', updated.lastStatus === 'success' ? 'success' : 'error')
+      setTab('results')
+      showToast(updated.lastStatus === 'success' ? '任务执行完成，结果已加入结果 Tab' : updated.lastError ?? '任务执行失败', updated.lastStatus === 'success' ? 'success' : 'error')
     } catch (error) {
       showToast(errorMessage(error), 'error')
     } finally {
@@ -2475,8 +2480,17 @@ function TasksView({ tasks, sources, onOpenQuery, onDataChange, showToast }: {
 
   const valid = Boolean(form?.name.trim() && form.question.trim() && form.dataSourceId && form.sql.trim())
 
+  const scheduledRuns = runs
+    .filter((run) => Boolean(run.scheduledTaskId || run.scheduledTaskName))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
   return (
-    <div className="sources-layout tasks-layout">
+    <div className="tasks-page">
+      <nav className="tasks-page-tabs" role="tablist" aria-label="定时页面视图">
+        <button role="tab" aria-selected={tab === 'tasks'} className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}><Clock3 size={16} />任务<span>{tasks.length}</span></button>
+        <button role="tab" aria-selected={tab === 'results'} className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}><History size={16} />结果<span>{scheduledRuns.length}</span></button>
+      </nav>
+      {tab === 'tasks' ? <div className="sources-layout tasks-layout">
       <section className="source-index">
         <div className="source-index-heading">
           <div><h1>定时</h1><span>{tasks.filter((task) => task.enabled).length} 个运行中</span></div>
@@ -2517,6 +2531,44 @@ function TasksView({ tasks, sources, onOpenQuery, onDataChange, showToast }: {
           </div>
           </form>
         </> : <div className="task-empty-detail"><Clock3 size={28} /><strong>从查询结果创建定时任务</strong><span>运行一次查询并确认结果后，在结果卡片右上角点击时钟图标。</span><button className="primary-button" type="button" onClick={onOpenQuery}><Search size={16} />去查询</button></div>}
+      </section>
+      </div> : <ScheduledResultsView runs={scheduledRuns} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} />}
+    </div>
+  )
+}
+
+function ScheduledResultsView({ runs, savedSql, onDataChange, showToast }: {
+  runs: QueryRun[]
+  savedSql: SavedSql[]
+  onDataChange: () => Promise<void>
+  showToast: (message: string, tone?: Toast['tone']) => void
+}) {
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(runs[0]?.id ?? null)
+  const selected = runs.find((run) => run.id === selectedRunId)
+
+  useEffect(() => {
+    if (!runs.length) {
+      setSelectedRunId(null)
+      return
+    }
+    if (!selectedRunId || !runs.some((run) => run.id === selectedRunId)) setSelectedRunId(runs[0]!.id)
+  }, [runs, selectedRunId])
+
+  return (
+    <div className="sources-layout tasks-layout tasks-results-layout">
+      <section className="source-index">
+        <div className="source-index-heading"><div><h1>结果</h1><span>{runs.length} 次执行</span></div></div>
+        <div className="source-list task-list">
+          {runs.map((run) => <button key={run.id} className={`source-item task-item ${selectedRunId === run.id ? 'active' : ''}`} onClick={() => setSelectedRunId(run.id)}>
+            <span className="task-glyph"><History size={15} /></span>
+            <span><strong>{run.scheduledTaskName ?? '已删除的定时任务'}</strong><small>{formatTime(run.createdAt)} · {run.dataSourceName}</small></span>
+            <i className={`status-dot ${run.status === 'error' ? 'failed' : 'connected'}`} title={run.status === 'error' ? run.error ?? '执行失败' : '执行成功'} />
+          </button>)}
+          {!runs.length && <div className="list-empty compact"><History size={21} /><span>还没有定时执行结果</span></div>}
+        </div>
+      </section>
+      <section className="source-editor task-result-editor">
+        {selected ? <RunCard run={selected} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} defaultView="table" allowSchedule={false} /> : <div className="task-empty-detail"><History size={28} /><strong>还没有执行结果</strong><span>在任务 Tab 中选择任务并点击立即运行，结果会保留在这里。</span></div>}
       </section>
     </div>
   )

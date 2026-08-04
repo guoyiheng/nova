@@ -54,6 +54,8 @@ type QueryRunRow = {
   duration_ms: number
   mode: QueryRun['mode']
   model: string | null
+  scheduled_task_id: string | null
+  scheduled_task_name: string | null
   process_json: string | null
   is_favorite: number
   is_pinned: number
@@ -217,6 +219,8 @@ export class Storage {
         error TEXT,
         duration_ms INTEGER NOT NULL DEFAULT 0,
         mode TEXT NOT NULL DEFAULT 'smart',
+        scheduled_task_id TEXT,
+        scheduled_task_name TEXT,
         process_json TEXT,
         is_favorite INTEGER NOT NULL DEFAULT 0,
         is_pinned INTEGER NOT NULL DEFAULT 0,
@@ -296,6 +300,38 @@ export class Storage {
     if (!queryRunColumns.some((column) => column.name === 'process_json')) {
       this.db.exec('ALTER TABLE query_runs ADD COLUMN process_json TEXT')
     }
+    if (!queryRunColumns.some((column) => column.name === 'scheduled_task_id')) {
+      this.db.exec('ALTER TABLE query_runs ADD COLUMN scheduled_task_id TEXT')
+    }
+    if (!queryRunColumns.some((column) => column.name === 'scheduled_task_name')) {
+      this.db.exec('ALTER TABLE query_runs ADD COLUMN scheduled_task_name TEXT')
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_query_runs_scheduled_task ON query_runs(scheduled_task_id, created_at DESC)')
+    this.db.exec(`
+      UPDATE query_runs
+      SET scheduled_task_id = (
+        SELECT task.id FROM scheduled_tasks task
+        WHERE task.data_source_id = query_runs.data_source_id
+          AND task.sql = query_runs.sql
+          AND task.question = query_runs.question
+        ORDER BY task.created_at ASC LIMIT 1
+      ),
+      scheduled_task_name = (
+        SELECT task.name FROM scheduled_tasks task
+        WHERE task.data_source_id = query_runs.data_source_id
+          AND task.sql = query_runs.sql
+          AND task.question = query_runs.question
+        ORDER BY task.created_at ASC LIMIT 1
+      )
+      WHERE scheduled_task_id IS NULL
+        AND answer LIKE '定时任务执行完成，%'
+        AND EXISTS (
+          SELECT 1 FROM scheduled_tasks task
+          WHERE task.data_source_id = query_runs.data_source_id
+            AND task.sql = query_runs.sql
+            AND task.question = query_runs.question
+        )
+    `)
     if (queryRunColumns.some((column) => column.name === 'dashboard_id')) {
       this.db.exec('ALTER TABLE query_runs DROP COLUMN dashboard_id')
     }
@@ -641,8 +677,9 @@ export class Storage {
     this.db.prepare(`
       INSERT INTO query_runs (
         id, data_source_id, data_source_name, question, answer, sql,
-        table_json, chart_json, status, error, duration_ms, mode, model, process_json, is_favorite, is_pinned, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+        table_json, chart_json, status, error, duration_ms, mode, model,
+        scheduled_task_id, scheduled_task_name, process_json, is_favorite, is_pinned, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
     `).run(
       id,
       run.dataSourceId,
@@ -657,6 +694,8 @@ export class Storage {
       run.durationMs,
       run.mode,
       run.model ?? null,
+      run.scheduledTaskId ?? null,
+      run.scheduledTaskName ?? null,
       run.processLogs?.length ? JSON.stringify(run.processLogs) : null,
       now,
     )
@@ -1089,6 +1128,8 @@ export class Storage {
       durationMs: row.duration_ms,
       mode: row.mode ?? 'smart',
       model: row.model ?? null,
+      scheduledTaskId: row.scheduled_task_id ?? null,
+      scheduledTaskName: row.scheduled_task_name ?? null,
       processLogs: parseProcessLogs(row.process_json),
       isFavorite: Boolean(row.is_favorite),
       isPinned: Boolean(row.is_pinned),

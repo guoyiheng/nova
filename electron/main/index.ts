@@ -249,6 +249,8 @@ async function executeScheduledTask(task: ScheduledTask): Promise<ScheduledTask>
       error: null,
       durationMs: Date.now() - startedAt,
       mode: 'sql',
+      scheduledTaskId: task.id,
+      scheduledTaskName: task.name,
     })
     return storage.completeScheduledTask(task.id, 'success', null)
   } catch (error) {
@@ -265,6 +267,8 @@ async function executeScheduledTask(task: ScheduledTask): Promise<ScheduledTask>
       error: message,
       durationMs: Date.now() - startedAt,
       mode: 'sql',
+      scheduledTaskId: task.id,
+      scheduledTaskName: task.name,
     })
     return storage.completeScheduledTask(task.id, 'error', message)
   } finally {

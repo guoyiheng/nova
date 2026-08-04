@@ -3618,6 +3618,77 @@ summary:focus-visible {
   grid-template-columns: 36px minmax(0, 1fr) auto;
 }
 
+.tasks-page {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.tasks-page-tabs {
+  min-height: 58px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  border-bottom: 1px solid var(--rule);
+  padding: 0 28px;
+  background: var(--canvas);
+}
+
+.tasks-page-tabs button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 13px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.tasks-page-tabs button:hover {
+  color: var(--ink);
+}
+
+.tasks-page-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.tasks-page-tabs button span {
+  min-width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-card);
+  color: var(--ink-faint);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks-page-tabs button.active span {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.tasks-results-layout .source-index-heading h1 {
+  margin-bottom: 2px;
+}
+
+.task-result-editor {
+  overflow-y: auto;
+}
+
+.task-result-editor>.run-card {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
 .task-glyph {
   width: 36px;
   height: 36px;

@@ -52,6 +52,23 @@ describe('portable configuration', () => {
     expect(completed.nextRunAt).toBe('2026-08-04T03:00:00.000Z')
     expect(sourceStorage.bootstrap().scheduledTasks).toHaveLength(1)
 
+    const result = sourceStorage.saveQueryRun({
+      dataSourceId: source.id,
+      dataSourceName: source.name,
+      question: task.question,
+      answer: '定时任务执行完成，返回 1 行。',
+      sql: task.sql,
+      table: { columns: ['status'], rows: [{ status: 'ok' }], truncated: false },
+      chart: null,
+      status: 'success',
+      error: null,
+      durationMs: 12,
+      mode: 'sql',
+      scheduledTaskId: task.id,
+      scheduledTaskName: task.name,
+    })
+    expect(sourceStorage.getQueryRun(result.id)).toMatchObject({ scheduledTaskId: task.id, scheduledTaskName: task.name })
+
     sourceStorage.deleteScheduledTask(task.id)
     expect(sourceStorage.listScheduledTasks()).toEqual([])
   })
