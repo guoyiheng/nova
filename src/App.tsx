@@ -127,7 +127,7 @@ import { parseDataSourceUrl } from './data-source-url'
 import { parseFunnelSteps } from './funnel'
 import { MarkdownAnswer } from './MarkdownAnswer'
 
-type SettingsSectionId = 'migration' | 'about'
+type SettingsSectionId = 'sources' | 'models' | 'migration' | 'about'
 
 const DEMO_SQL_EXAMPLES = [
   {
@@ -177,6 +177,8 @@ function AppLoading() {
 export function App() {
   const [data, setData] = useState<BootstrapData | null>(null)
   const [page, setPageState] = useState<Page>(() => initialPage())
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('sources')
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
@@ -187,6 +189,7 @@ export function App() {
 
   const setPage = (newPage: Page) => {
     setPageState(newPage)
+    setSettingsOpen(false)
     try {
       localStorage.setItem('nova_active_page', newPage)
     } catch {
@@ -212,6 +215,15 @@ export function App() {
 
   useEffect(() => window.nova.onUpdateDownloadProgress(setDownloadProgress), [])
 
+  useEffect(() => {
+    if (!settingsOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSettingsOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [settingsOpen])
+
   if (!data) return <AppLoading />
 
   const activeSource = data.dataSources.find((source) => source.id === data.activeDataSourceId) ?? null
@@ -222,6 +234,11 @@ export function App() {
   }
 
   const showToast = (message: string, tone: Toast['tone'] = 'success') => setToast({ message, tone })
+
+  const openSettings = (section: SettingsSectionId = settingsSection) => {
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
@@ -300,12 +317,10 @@ export function App() {
           <NavButton active={page === 'funnels'} label="漏斗" icon={GitMerge} onClick={() => setPage('funnels')} />
           <NavButton active={page === 'tasks'} label="定时" icon={Clock3} onClick={() => setPage('tasks')} />
           <NavButton active={page === 'history'} label="历史" icon={History} onClick={() => setPage('history')} />
-          <NavButton active={page === 'sources'} label="数据源" icon={Database} onClick={() => setPage('sources')} />
-          <NavButton active={page === 'models'} label="模型" icon={Sparkles} onClick={() => setPage('models')} />
         </nav>
 
         <div className="sidebar-foot">
-          <NavButton active={page === 'settings'} label="设置" icon={Settings} onClick={() => setPage('settings')} badge={Boolean(updateResult?.hasUpdate)} />
+          <NavButton active={settingsOpen} label="设置" icon={Settings} onClick={() => openSettings()} badge={Boolean(updateResult?.hasUpdate)} />
         </div>
       </aside>
 
@@ -316,8 +331,8 @@ export function App() {
               data={data}
               activeSource={activeSource}
               onSourceChange={activateSource}
-              onOpenSources={() => setPage('sources')}
-              onOpenModels={() => setPage('models')}
+              onOpenSources={() => openSettings('sources')}
+              onOpenModels={() => openSettings('models')}
               onDataChange={refresh}
               showToast={showToast}
             />
@@ -338,21 +353,22 @@ export function App() {
           )}
           {page === 'funnels' && <FunnelView data={data} onDataChange={refresh} showToast={showToast} />}
           {page === 'tasks' && <TasksView tasks={data.scheduledTasks ?? []} sources={data.dataSources} modelChannels={data.modelChannels} onDataChange={refresh} showToast={showToast} />}
-          {page === 'sources' && (
-            <SourcesView
-              sources={data.dataSources}
-              activeSourceId={data.activeDataSourceId}
-              onDataChange={refresh}
-              showToast={showToast}
-            />
-          )}
-          {page === 'models' && (
-            <ModelsView channels={data.modelChannels} onDataChange={refresh} showToast={showToast} />
-          )}
-          {page === 'settings' && (
+        </main>
+      </section>
+
+      {settingsOpen && (
+        <div className="settings-modal-backdrop" onClick={() => setSettingsOpen(false)}>
+          <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" onClick={(event) => event.stopPropagation()}>
+            <header className="settings-modal-header">
+              <div><h2 id="settings-modal-title">设置</h2><span>管理连接、模型与应用</span></div>
+              <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} aria-label="关闭设置"><X size={17} /></button>
+            </header>
             <SettingsView
+              activeSection={settingsSection}
+              onActiveSectionChange={setSettingsSection}
               appVersion={data.appVersion}
               dataSources={data.dataSources}
+              modelChannels={data.modelChannels}
               activeDataSourceId={data.activeDataSourceId}
               updateResult={updateResult}
               checkingUpdate={checkingUpdate}
@@ -366,9 +382,9 @@ export function App() {
               onDataChange={refresh}
               showToast={showToast}
             />
-          )}
-        </main>
-      </section>
+          </section>
+        </div>
+      )}
 
       {toast && (
         <div className={`toast toast-${toast.tone}`} role="status">
@@ -3424,9 +3440,12 @@ function ModelsView({ channels, onDataChange, showToast }: {
   )
 }
 
-function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResult, checkingUpdate, downloadingUpdate, downloadProgress, updateDownloaded, onCheckUpdate, onDownloadUpdate, onApplyRendererUpdate, onOpenDownloadedUpdate, onDataChange, showToast }: {
+function SettingsView({ activeSection, onActiveSectionChange, appVersion, dataSources, modelChannels, activeDataSourceId, updateResult, checkingUpdate, downloadingUpdate, downloadProgress, updateDownloaded, onCheckUpdate, onDownloadUpdate, onApplyRendererUpdate, onOpenDownloadedUpdate, onDataChange, showToast }: {
+  activeSection: SettingsSectionId
+  onActiveSectionChange: (section: SettingsSectionId) => void
   appVersion: string
   dataSources: DataSource[]
+  modelChannels: ModelChannel[]
   activeDataSourceId: string | null
   updateResult: UpdateCheckResult | null
   checkingUpdate: boolean
@@ -3446,45 +3465,11 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
   const [showBatchModal, setShowBatchModal] = useState(false)
   const [batchContent, setBatchContent] = useState('')
   const [batchDataSourceId, setBatchDataSourceId] = useState(activeDataSourceId ?? dataSources[0]?.id ?? '')
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('migration')
-  const migrationSectionRef = useRef<HTMLElement>(null)
-  const aboutSectionRef = useRef<HTMLElement>(null)
-  const settingsContentRef = useRef<HTMLDivElement>(null)
-  const navigationTargetRef = useRef<SettingsSectionId | null>(null)
-  const navigationResetRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (dataSources.some((source) => source.id === batchDataSourceId)) return
     setBatchDataSourceId(activeDataSourceId ?? dataSources[0]?.id ?? '')
   }, [activeDataSourceId, batchDataSourceId, dataSources])
-
-  useEffect(() => {
-    const scrollContainer = settingsContentRef.current
-    if (!scrollContainer) return
-    scrollContainer.closest('.main-content')?.scrollTo({ top: 0 })
-
-    const updateActiveSection = () => {
-      if (navigationTargetRef.current) return
-      const marker = scrollContainer.getBoundingClientRect().top + 112
-      const sections: Array<[SettingsSectionId, HTMLElement | null]> = [
-        ['migration', migrationSectionRef.current],
-        ['about', aboutSectionRef.current],
-      ]
-      let next: SettingsSectionId = 'migration'
-      for (const [id, section] of sections) {
-        if (section && section.getBoundingClientRect().top <= marker) next = id
-      }
-      if (scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 24) next = 'about'
-      setActiveSection((current) => current === next ? current : next)
-    }
-
-    updateActiveSection()
-    scrollContainer.addEventListener('scroll', updateActiveSection, { passive: true })
-    return () => {
-      scrollContainer.removeEventListener('scroll', updateActiveSection)
-      if (navigationResetRef.current !== null) window.clearTimeout(navigationResetRef.current)
-    }
-  }, [])
 
   const importConfig = async () => {
     setImporting(true)
@@ -3536,44 +3521,38 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
     }
   }
 
-  const goToSection = (id: SettingsSectionId, section: HTMLElement | null) => {
-    navigationTargetRef.current = id
-    setActiveSection(id)
-    const scrollContainer = settingsContentRef.current
-    if (scrollContainer && section) {
-      const top = scrollContainer.scrollTop
-        + section.getBoundingClientRect().top
-        - scrollContainer.getBoundingClientRect().top
-        - 40
-      scrollContainer.scrollTo({ top, behavior: 'smooth' })
-    }
-    if (navigationResetRef.current !== null) window.clearTimeout(navigationResetRef.current)
-    navigationResetRef.current = window.setTimeout(() => {
-      navigationTargetRef.current = null
-      navigationResetRef.current = null
-    }, 650)
-  }
-
   return (
     <>
     <div className="settings-page">
       <nav className="settings-nav" aria-label="设置分类">
         <div className="settings-nav-heading">
-          <div><h1>设置</h1><span>2 个分类</span></div>
+          <span>设置分类</span>
         </div>
         <div className="settings-nav-list">
-          <button className={activeSection === 'migration' ? 'active' : ''} aria-current={activeSection === 'migration' ? 'location' : undefined} onClick={() => goToSection('migration', migrationSectionRef.current)}>
+          <button className={activeSection === 'sources' ? 'active' : ''} aria-current={activeSection === 'sources' ? 'page' : undefined} onClick={() => onActiveSectionChange('sources')}>
+            <Database size={17} /><strong>数据源</strong><span>{dataSources.length}</span>
+          </button>
+          <button className={activeSection === 'models' ? 'active' : ''} aria-current={activeSection === 'models' ? 'page' : undefined} onClick={() => onActiveSectionChange('models')}>
+            <Sparkles size={17} /><strong>模型</strong><span>{modelChannels.length}</span>
+          </button>
+          <button className={activeSection === 'migration' ? 'active' : ''} aria-current={activeSection === 'migration' ? 'page' : undefined} onClick={() => onActiveSectionChange('migration')}>
             <FolderOpen size={17} /><strong>配置迁移</strong>
           </button>
-          <button className={activeSection === 'about' ? 'active' : ''} aria-current={activeSection === 'about' ? 'location' : undefined} onClick={() => goToSection('about', aboutSectionRef.current)}>
+          <button className={activeSection === 'about' ? 'active' : ''} aria-current={activeSection === 'about' ? 'page' : undefined} onClick={() => onActiveSectionChange('about')}>
             <Info size={17} /><strong>关于</strong>
           </button>
         </div>
       </nav>
 
-      <div className="settings-content" ref={settingsContentRef}>
-        <div className="settings-content-inner">
-          <section className="settings-section migration-settings-section" id="settings-migration" ref={migrationSectionRef}>
+      <div className={`settings-content ${activeSection === 'sources' || activeSection === 'models' ? 'settings-content-managed' : ''}`}>
+        {activeSection === 'sources' && (
+          <SourcesView sources={dataSources} activeSourceId={activeDataSourceId} onDataChange={onDataChange} showToast={showToast} />
+        )}
+        {activeSection === 'models' && (
+          <ModelsView channels={modelChannels} onDataChange={onDataChange} showToast={showToast} />
+        )}
+        {(activeSection === 'migration' || activeSection === 'about') && <div className="settings-content-inner">
+          {activeSection === 'migration' && <section className="settings-section migration-settings-section" id="settings-migration">
             <div className="settings-heading"><h1>配置迁移</h1></div>
             <div className="config-section">
               <div className="config-section-copy">
@@ -3601,9 +3580,9 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
                 </button>
               </div>
             </div>
-          </section>
+          </section>}
 
-          <section className="settings-section about-section" id="settings-about" ref={aboutSectionRef}>
+          {activeSection === 'about' && <section className="settings-section about-section" id="settings-about">
             <div className="settings-heading"><h1>关于</h1></div>
             <div className="about-intro">
               <div className="about-product-mark" aria-hidden="true"><img src={novaIconUrl} alt="" /></div>
@@ -3690,8 +3669,8 @@ function SettingsView({ appVersion, dataSources, activeDataSourceId, updateResul
                   </div>
               </div>
             )}
-          </section>
-        </div>
+          </section>}
+        </div>}
       </div>
     </div>
 

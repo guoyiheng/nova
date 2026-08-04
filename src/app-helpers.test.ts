@@ -1,12 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { QueryRun, SavedSql } from '../electron/shared/types'
 import {
   applyModelProviderPreset,
   MODEL_PROVIDER_PRESETS,
   initialCardView,
+  initialPage,
   modelProviderPresetForBaseUrl,
   savedSqlForSource,
 } from './app-helpers'
+
+describe('initialPage', () => {
+  it('returns to query when an old settings route was persisted', () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'sources' })
+    try {
+      expect(initialPage()).toBe('query')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
 
 const savedSql: SavedSql[] = [
   { id: 'orders-a', dataSourceId: 'source-a', name: 'Orders', sql: 'SELECT * FROM orders', createdAt: '', updatedAt: '' },
