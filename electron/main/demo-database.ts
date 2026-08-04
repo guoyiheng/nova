@@ -28,7 +28,7 @@ export function seedDemoDatabase(db: DatabaseSync, referenceDate = new Date()) {
   const currentVersion = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'nova_demo_meta'").get()
     ? (db.prepare("SELECT value FROM nova_demo_meta WHERE key = 'version'").get() as { value?: string } | undefined)?.value
     : undefined
-  if (currentVersion === String(DEMO_DATABASE_VERSION)) return
+  if (currentVersion === String(DEMO_DATABASE_VERSION)) return false
 
   db.exec(`
     BEGIN;
@@ -154,6 +154,7 @@ export function seedDemoDatabase(db: DatabaseSync, referenceDate = new Date()) {
     db.prepare("INSERT INTO nova_demo_meta (key, value) VALUES ('version', ?)").run(String(DEMO_DATABASE_VERSION))
     db.prepare("INSERT INTO nova_demo_meta (key, value) VALUES ('created_at', ?)").run(referenceDate.toISOString())
     db.exec('COMMIT')
+    return true
   } catch (error) {
     db.exec('ROLLBACK')
     throw error
@@ -163,7 +164,7 @@ export function seedDemoDatabase(db: DatabaseSync, referenceDate = new Date()) {
 export function ensureDemoDatabase(databasePath: string, referenceDate = new Date()) {
   const db = new DatabaseSync(databasePath)
   try {
-    seedDemoDatabase(db, referenceDate)
+    return seedDemoDatabase(db, referenceDate)
   } finally {
     db.close()
   }
@@ -173,7 +174,7 @@ export function resetDemoDatabase(databasePath: string, referenceDate = new Date
   const db = new DatabaseSync(databasePath)
   try {
     db.exec('DROP TABLE IF EXISTS nova_demo_meta')
-    seedDemoDatabase(db, referenceDate)
+    return seedDemoDatabase(db, referenceDate)
   } finally {
     db.close()
   }

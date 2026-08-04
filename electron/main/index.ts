@@ -13,7 +13,7 @@ import { checkAppUpdate, downloadAppUpdate, openDownloadedUpdate } from './updat
 import { RendererUpdater } from './renderer-updater.js'
 import { extractSchemaCacheStructure, inspectSchemaCache, isSchemaCacheStale, missingSchemaCacheInfo, resolveSchemaSnapshot } from './schema-cache.js'
 import { TaskScheduler } from './scheduler.js'
-import type { AgentProgressEvent, AgentStage, DataSourceInput, QueryTable, ScheduledTask } from '../shared/types.js'
+import type { AgentProgressEvent, AgentStage, DataSource, DataSourceInput, QueryTable, ScheduledTask } from '../shared/types.js'
 
 let mainWindow: BrowserWindow | null = null
 let storage: Storage
@@ -199,6 +199,19 @@ function executionSummary(table: QueryTable) {
     : `返回 ${table.rows.length}${table.truncated ? '+' : ''} 行`
 }
 
+async function rebuildSchemaCacheForSource(source: DataSource) {
+  const session = new DbhubSession()
+  try {
+    await session.connect(buildDsn(source, storage.getDataSourceSecret(source.id)))
+    const schemaJson = await loadSchemaSnapshot(session)
+    storage.saveSchemaCache(source.id, schemaJson)
+    const cached = storage.getSchemaCacheRecord(source.id)!
+    return inspectSchemaCache(source.id, cached.schemaJson, cached.refreshedAt)
+  } finally {
+    await session.close()
+  }
+}
+
 async function executeScheduledTask(task: ScheduledTask): Promise<ScheduledTask> {
   const source = storage.getDataSource(task.dataSourceId)
   const startedAt = Date.now()
@@ -364,25 +377,22 @@ function registerIpc() {
     const dataSourceId = z.string().uuid().parse(id)
     const source = storage.getDataSource(dataSourceId)
     if (!source) throw new Error('数据源不存在。')
-    const session = new DbhubSession()
-    try {
-      await session.connect(buildDsn(source, storage.getDataSourceSecret(source.id)))
-      const schemaJson = await loadSchemaSnapshot(session)
-      storage.saveSchemaCache(source.id, schemaJson)
-      const cached = storage.getSchemaCacheRecord(source.id)!
-      return inspectSchemaCache(source.id, cached.schemaJson, cached.refreshedAt)
-    } finally {
-      await session.close()
-    }
+    return rebuildSchemaCacheForSource(source)
   })
 
-  ipcMain.handle('nova:demo:reset', (_event, id: string) => {
+  ipcMain.handle('nova:demo:reset', async (_event, id: string) => {
     const dataSourceId = z.string().uuid().parse(id)
     const source = storage.getDataSource(dataSourceId)
     if (!source || source.type !== 'demo') throw new Error('演示数据源不存在。')
     resetDemoDatabase(demoDatabasePath())
     storage.clearSchemaCache(source.id)
-    storage.updateDataSourceStatus(source.id, 'connected')
+    try {
+      await rebuildSchemaCacheForSource(source)
+      storage.updateDataSourceStatus(source.id, 'connected')
+    } catch (error) {
+      storage.updateDataSourceStatus(source.id, 'failed')
+      throw error
+    }
   })
 
   ipcMain.handle('nova:data-source:test', async (_event, payload) => {
@@ -830,11 +840,20 @@ app.whenReady().then(async () => {
   })
   await rendererUpdater.initialize()
   protocol.handle('nova', rendererProtocolResponse)
-  ensureDemoDatabase(demoDatabasePath())
+  const demoDatabaseChanged = ensureDemoDatabase(demoDatabasePath())
   storage = new Storage(path.join(app.getPath('userData'), 'nova.sqlite'))
-  if (!storage.listDataSources().some((source) => source.type === 'demo')) {
-    const demoSource = storage.saveDataSource(prepareDataSourceInput({ name: 'Nova 示例商店', type: 'demo' }))
-    storage.updateDataSourceStatus(demoSource.id, 'connected')
+  let demoSource = storage.listDataSources().find((source) => source.type === 'demo')
+  if (!demoSource) {
+    demoSource = storage.saveDataSource(prepareDataSourceInput({ name: 'Nova 示例商店', type: 'demo' }))
+  }
+  storage.updateDataSourceStatus(demoSource.id, 'connected')
+  const demoCache = storage.getSchemaCacheRecord(demoSource.id)
+  if (demoDatabaseChanged || !demoCache || isSchemaCacheStale(demoCache.refreshedAt)) {
+    try {
+      await rebuildSchemaCacheForSource(demoSource)
+    } catch (error) {
+      console.error('Failed to prepare demo schema cache:', error)
+    }
   }
   registerIpc()
   taskScheduler = new TaskScheduler(

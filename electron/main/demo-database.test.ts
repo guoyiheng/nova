@@ -7,8 +7,8 @@ describe('seedDemoDatabase', () => {
     const db = new DatabaseSync(':memory:')
     try {
       const referenceDate = new Date('2026-08-04T08:00:00.000Z')
-      seedDemoDatabase(db, referenceDate)
-      seedDemoDatabase(db, referenceDate)
+      expect(seedDemoDatabase(db, referenceDate)).toBe(true)
+      expect(seedDemoDatabase(db, referenceDate)).toBe(false)
 
       expect((db.prepare('SELECT COUNT(*) AS count FROM customers').get() as { count: number }).count).toBe(36)
       expect((db.prepare('SELECT COUNT(*) AS count FROM orders').get() as { count: number }).count).toBe(144)
@@ -25,7 +25,7 @@ describe('seedDemoDatabase', () => {
 
       db.prepare("UPDATE products SET name = '已修改' WHERE id = 1").run()
       db.exec('DROP TABLE nova_demo_meta')
-      seedDemoDatabase(db, referenceDate)
+      expect(seedDemoDatabase(db, referenceDate)).toBe(true)
       expect((db.prepare('SELECT name FROM products WHERE id = 1').get() as { name: string }).name).toBe('轻量通勤双肩包')
     } finally {
       db.close()
