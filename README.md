@@ -25,6 +25,7 @@ Nova is a desktop workspace for exploring databases without losing sight of the 
 - **Natural language to SQL** — uses an OpenAI-compatible model and DBHub MCP to translate questions into executable queries.
 - **Five database engines** — PostgreSQL, MySQL, MariaDB, SQL Server, and SQLite.
 - **Readable results** — combines narrative answers, query details, tables, and visualizations in one workspace.
+- **Provider presets** — configure OpenAI, DeepSeek, Qwen, Kimi, GLM, or SiliconFlow with only an API key.
 - **Reusable research** — search, pin, and favorite previous queries across multiple data sources.
 - **Local-first storage** — application data stays in Electron's local `userData` directory.
 - **Encrypted credentials** — database passwords and model API keys are protected with local AES-256-GCM encryption.

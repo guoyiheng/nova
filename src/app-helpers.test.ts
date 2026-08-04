@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { SavedSql } from '../electron/shared/types'
-import { savedSqlForSource } from './app-helpers'
+import {
+  applyModelProviderPreset,
+  MODEL_PROVIDER_PRESETS,
+  modelProviderPresetForBaseUrl,
+  savedSqlForSource,
+} from './app-helpers'
 
 const savedSql: SavedSql[] = [
   { id: 'orders-a', dataSourceId: 'source-a', name: 'Orders', sql: 'SELECT * FROM orders', createdAt: '', updatedAt: '' },
@@ -17,5 +22,31 @@ describe('savedSqlForSource', () => {
   it('searches within the selected data source', () => {
     expect(savedSqlForSource(savedSql, 'source-a', 'orders').map((item) => item.id)).toEqual(['orders-a'])
     expect(savedSqlForSource(savedSql, 'source-a', 'count')).toEqual([])
+  })
+})
+
+describe('model provider presets', () => {
+  it('matches provider endpoints regardless of trailing slash or case', () => {
+    expect(modelProviderPresetForBaseUrl('HTTPS://API.DEEPSEEK.COM/V1///')?.id).toBe('deepseek')
+    expect(modelProviderPresetForBaseUrl('https://example.com/v1')).toBeNull()
+  })
+
+  it('applies connection defaults without discarding the saved identity or API key input', () => {
+    const preset = MODEL_PROVIDER_PRESETS.find((item) => item.id === 'qwen')!
+    expect(applyModelProviderPreset({
+      id: 'channel-id',
+      name: '旧名称',
+      baseUrl: 'https://old.example.com/v1',
+      model: 'old-model',
+      availableModels: ['old-model'],
+      apiKey: 'secret',
+    }, preset)).toEqual({
+      id: 'channel-id',
+      name: '通义千问',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+      availableModels: [],
+      apiKey: 'secret',
+    })
   })
 })

@@ -85,7 +85,9 @@ import {
   DATABASE_TYPES,
   EMPTY_MODEL_CHANNEL,
   EMPTY_SOURCE,
+  MODEL_PROVIDER_PRESETS,
   QUERY_SCROLL_POSITION_KEY,
+  applyModelProviderPreset,
   errorMessage,
   formatBytes,
   formatReleaseDate,
@@ -97,11 +99,13 @@ import {
   initialQueryMode,
   initialQueryModel,
   numericValue,
+  modelProviderPresetForBaseUrl,
   queryModelOptions,
   savedSqlForSource,
   savedQueryScrollPosition,
   type CardView,
   type ChartFields,
+  type ModelProviderPreset,
   type Page,
   type ResultChartType,
   type SelectOption,
@@ -439,6 +443,43 @@ function SelectStatus({ status, dotOnly = false }: { status: DataSource['status'
     <span className={`select-status ${status}`}>
       <i />{status === 'connected' ? '可用' : status === 'failed' ? '异常' : '未测试'}
     </span>
+  )
+}
+
+function ModelProviderPicker({ baseUrl, onSelect, disabled = false }: {
+  baseUrl: string
+  onSelect: (preset: ModelProviderPreset | null) => void
+  disabled?: boolean
+}) {
+  const selected = modelProviderPresetForBaseUrl(baseUrl)
+  return (
+    <div className="provider-picker" role="radiogroup" aria-label="选择模型提供商">
+      {MODEL_PROVIDER_PRESETS.map((preset) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked={selected?.id === preset.id}
+          className={selected?.id === preset.id ? 'active' : ''}
+          disabled={disabled}
+          key={preset.id}
+          onClick={() => onSelect(preset)}
+        >
+          <span>{preset.shortName}</span>
+          <strong>{preset.name}</strong>
+        </button>
+      ))}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={!selected}
+        className={!selected ? 'active' : ''}
+        disabled={disabled}
+        onClick={() => onSelect(null)}
+      >
+        <span>+</span>
+        <strong>自定义</strong>
+      </button>
+    </div>
   )
 }
 
@@ -1869,6 +1910,7 @@ function InitialSetupModal({ onClose, onComplete, showToast }: {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('gpt-5-mini')
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [advancedModelSettingsOpen, setAdvancedModelSettingsOpen] = useState(false)
   const [testing, setTesting] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1906,7 +1948,7 @@ function InitialSetupModal({ onClose, onComplete, showToast }: {
   }
 
   const complete = async () => {
-    if (!isDataSourceFormComplete(source) || !baseUrl.trim() || !model.trim()) return
+    if (!isDataSourceFormComplete(source) || !baseUrl.trim() || !model.trim() || !apiKey.trim()) return
     setSaving(true)
     try {
       await window.nova.completeInitialSetup({
@@ -1925,6 +1967,23 @@ function InitialSetupModal({ onClose, onComplete, showToast }: {
   const modelOptions = availableModels.includes(model)
     ? availableModels.map((item) => ({ value: item, label: item }))
     : [...availableModels.map((item) => ({ value: item, label: item })), { value: '__custom', label: '自定义模型' }]
+  const providerPreset = modelProviderPresetForBaseUrl(baseUrl)
+
+  const selectProvider = (preset: ModelProviderPreset | null) => {
+    if (!preset) {
+      setChannelName('自定义提供商')
+      setBaseUrl('')
+      setModel('')
+      setAvailableModels([])
+      setAdvancedModelSettingsOpen(true)
+      return
+    }
+    setChannelName(preset.name)
+    setBaseUrl(preset.baseUrl)
+    setModel(preset.model)
+    setAvailableModels([])
+    setAdvancedModelSettingsOpen(false)
+  }
 
   return (
     <div className="detail-modal-backdrop" onClick={onClose}>
@@ -1956,35 +2015,32 @@ function InitialSetupModal({ onClose, onComplete, showToast }: {
           <section className="initial-setup-section model-setup-section">
             <div className="initial-setup-section-heading"><Sparkles size={18} /><div><h5>模型</h5><p>生成 SQL 与分析结果</p></div></div>
             <div className="initial-setup-fields">
-              <label className="field"><span>提供商名称</span><input disabled={saving} value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="默认提供商" /></label>
-              <label className="field"><span>API 地址<i className="required-mark" aria-hidden="true">*</i></span><input type="url" required disabled={saving} value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setAvailableModels([]) }} placeholder="https://api.openai.com/v1" /></label>
-              <label className="field"><span>API Key</span><input type="password" disabled={saving} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-..." autoComplete="new-password" /></label>
-              <div className="field">
-                <span>模型<i className="required-mark" aria-hidden="true">*</i></span>
-                <div className="model-picker">
-                  <div className="model-picker-main">
-                    {availableModels.length ? (
-                      <SelectControl
-                        className="model-select"
-                        ariaLabel="选择模型"
-                        value={availableModels.includes(model) ? model : '__custom'}
-                        options={modelOptions}
-                        onChange={(value) => setModel(value === '__custom' ? '' : value)}
-                        disabled={saving}
-                      />
-                    ) : (
-                      <input aria-label="模型" required disabled={saving} value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5-mini" />
-                    )}
-                    <button className="model-pull-button" type="button" onClick={() => void loadModels()} disabled={loadingModels || saving || !baseUrl} aria-label="拉取模型列表" title="从 API 地址拉取模型列表">
-                      {loadingModels ? <LoaderCircle size={16} className="spin" /> : <CloudDownload size={16} />}
-                      <span>{loadingModels ? '拉取中' : '拉取'}</span>
-                    </button>
+              <div className="field"><span>选择提供商</span><ModelProviderPicker baseUrl={baseUrl} onSelect={selectProvider} disabled={saving} /></div>
+              <label className="field"><span>API Key<i className="required-mark" aria-hidden="true">*</i></span><input type="password" required disabled={saving} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={providerPreset?.apiKeyPlaceholder ?? '填写 API Key'} autoComplete="new-password" /></label>
+              {providerPreset && <p className="provider-default-summary">已配置 <strong>{providerPreset.model}</strong>，填写 Key 即可开始使用</p>}
+              <details className="provider-advanced" open={advancedModelSettingsOpen} onToggle={(event) => setAdvancedModelSettingsOpen(event.currentTarget.open)}>
+                <summary>高级设置<ChevronDown size={15} /></summary>
+                <div>
+                  <label className="field"><span>提供商名称</span><input disabled={saving} value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="默认提供商" /></label>
+                  <label className="field"><span>API 地址<i className="required-mark" aria-hidden="true">*</i></span><input type="url" required disabled={saving} value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); setAvailableModels([]) }} placeholder="https://api.example.com/v1" /></label>
+                  <div className="field">
+                    <span>模型<i className="required-mark" aria-hidden="true">*</i></span>
+                    <div className="model-picker">
+                      <div className="model-picker-main">
+                        {availableModels.length ? (
+                          <SelectControl className="model-select" ariaLabel="选择模型" value={availableModels.includes(model) ? model : '__custom'} options={modelOptions} onChange={(value) => setModel(value === '__custom' ? '' : value)} disabled={saving} />
+                        ) : (
+                          <input aria-label="模型" required disabled={saving} value={model} onChange={(event) => setModel(event.target.value)} placeholder="模型 ID" />
+                        )}
+                        <button className="model-pull-button" type="button" onClick={() => void loadModels()} disabled={loadingModels || saving || !baseUrl} aria-label="拉取模型列表" title="从 API 地址拉取模型列表">
+                          {loadingModels ? <LoaderCircle size={16} className="spin" /> : <CloudDownload size={16} />}<span>{loadingModels ? '拉取中' : '拉取'}</span>
+                        </button>
+                      </div>
+                      {availableModels.length > 0 && !availableModels.includes(model) && <input className="model-custom-input" autoFocus required disabled={saving} value={model} onChange={(event) => setModel(event.target.value)} placeholder="输入自定义模型 ID" aria-label="自定义模型 ID" />}
+                    </div>
                   </div>
-                  {availableModels.length > 0 && !availableModels.includes(model) && (
-                    <input className="model-custom-input" autoFocus required disabled={saving} value={model} onChange={(event) => setModel(event.target.value)} placeholder="输入自定义模型 ID" aria-label="自定义模型 ID" />
-                  )}
                 </div>
-              </div>
+              </details>
               <div className="security-note compact"><ShieldCheck size={16} /><div><strong>本地加密</strong><span>数据库密码与 API Key 仅在本地加密保存</span></div></div>
             </div>
           </section>
@@ -1992,7 +2048,7 @@ function InitialSetupModal({ onClose, onComplete, showToast }: {
 
         <footer className="detail-modal-footer initial-setup-footer">
           <button className="secondary-button compact" type="button" onClick={onClose} disabled={saving}>稍后配置</button>
-          <button className="primary-button compact" type="submit" disabled={saving || !isDataSourceFormComplete(source) || !baseUrl.trim() || !model.trim()}>
+          <button className="primary-button compact" type="submit" disabled={saving || !isDataSourceFormComplete(source) || !baseUrl.trim() || !model.trim() || !apiKey.trim()}>
             {saving ? <LoaderCircle size={15} className="spin" /> : <Check size={15} />}完成配置
           </button>
         </footer>
@@ -2379,10 +2435,12 @@ function ModelsView({ channels, onDataChange, showToast }: {
   const [loadingModels, setLoadingModels] = useState(false)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(() => !modelProviderPresetForBaseUrl(form.baseUrl))
 
   useEffect(() => {
     if (selected) {
       setForm((current) => current.id === selected.id ? current : modelChannelToInput(selected))
+      setAdvancedOpen(!modelProviderPresetForBaseUrl(selected.baseUrl))
     } else if (selectedId === 'new') {
       setForm((current) => current.id ? { ...EMPTY_MODEL_CHANNEL } : current)
     }
@@ -2390,6 +2448,13 @@ function ModelsView({ channels, onDataChange, showToast }: {
 
   const update = <K extends keyof ModelChannelInput>(key: K, value: ModelChannelInput[K]) => {
     setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  const selectProvider = (preset: ModelProviderPreset | null) => {
+    setForm((current) => preset
+      ? applyModelProviderPreset(current, preset)
+      : { ...current, name: '自定义提供商', baseUrl: '', model: '', availableModels: [] })
+    setAdvancedOpen(!preset)
   }
 
   const loadModels = async () => {
@@ -2449,6 +2514,8 @@ function ModelsView({ channels, onDataChange, showToast }: {
   const modelOptions = availableModels.includes(form.model)
     ? availableModels.map((model) => ({ value: model, label: model }))
     : [...availableModels.map((model) => ({ value: model, label: model })), { value: '__custom', label: '自定义模型' }]
+  const providerPreset = modelProviderPresetForBaseUrl(form.baseUrl)
+  const needsApiKey = Boolean(providerPreset && !selected?.hasApiKey && !form.apiKey?.trim())
 
   return (
     <div className="sources-layout models-layout">
@@ -2476,39 +2543,30 @@ function ModelsView({ channels, onDataChange, showToast }: {
         </div>
 
         <form onSubmit={(event) => { event.preventDefault(); void save() }} className="source-form model-channel-form">
-          <label className="field"><span>提供商名称</span><input autoFocus disabled={saving || testing} value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="默认提供商" /></label>
-          <label className="field"><span>API 地址<i className="required-mark" aria-hidden="true">*</i></span><input type="url" required disabled={saving || testing} value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value, availableModels: [] }))} placeholder="https://api.openai.com/v1" /></label>
-          <label className="field"><span>API Key</span><input type="password" disabled={saving || testing} value={form.apiKey} onChange={(event) => update('apiKey', event.target.value)} placeholder={selected?.hasApiKey ? '已安全保存，留空则不修改' : 'sk-...'} autoComplete="new-password" /></label>
-          <div className="field">
-            <span>默认模型<i className="required-mark" aria-hidden="true">*</i></span>
-            <div className="model-picker">
-              <div className="model-picker-main">
-                {availableModels.length ? (
-                  <SelectControl
-                    className="model-select"
-                    ariaLabel="选择默认模型"
-                    value={availableModels.includes(form.model) ? form.model : '__custom'}
-                    options={modelOptions}
-                    onChange={(value) => update('model', value === '__custom' ? '' : value)}
-                    disabled={saving || testing}
-                  />
-                ) : (
-                  <input aria-label="默认模型" required disabled={saving || testing} value={form.model} onChange={(event) => update('model', event.target.value)} placeholder="gpt-5-mini" />
-                )}
-                <button className="model-pull-button" type="button" onClick={() => void loadModels()} disabled={loadingModels || testing || saving || !form.baseUrl} aria-label="拉取模型列表" title="从该提供商拉取模型列表">
-                  {loadingModels ? <LoaderCircle size={16} className="spin" /> : <CloudDownload size={16} />}
-                  <span>{loadingModels ? '拉取中' : '拉取'}</span>
-                </button>
+          <div className="field"><span>选择提供商</span><ModelProviderPicker baseUrl={form.baseUrl} onSelect={selectProvider} disabled={saving || testing} /></div>
+          <label className="field"><span>API Key{providerPreset && <i className="required-mark" aria-hidden="true">*</i>}</span><input type="password" required={Boolean(providerPreset && !selected?.hasApiKey)} disabled={saving || testing} value={form.apiKey} onChange={(event) => update('apiKey', event.target.value)} placeholder={selected?.hasApiKey ? '已安全保存，留空则不修改' : providerPreset?.apiKeyPlaceholder ?? '填写 API Key（如需要）'} autoComplete="new-password" /></label>
+          {providerPreset && <p className="provider-default-summary">默认使用 <strong>{form.model}</strong>，填写 Key 后即可保存</p>}
+          <details className="provider-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+            <summary>高级设置<ChevronDown size={15} /></summary>
+            <div>
+              <label className="field"><span>提供商名称</span><input disabled={saving || testing} value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="默认提供商" /></label>
+              <label className="field"><span>API 地址<i className="required-mark" aria-hidden="true">*</i></span><input type="url" required disabled={saving || testing} value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value, availableModels: [] }))} placeholder="https://api.example.com/v1" /></label>
+              <div className="field">
+                <span>默认模型<i className="required-mark" aria-hidden="true">*</i></span>
+                <div className="model-picker">
+                  <div className="model-picker-main">
+                    {availableModels.length ? <SelectControl className="model-select" ariaLabel="选择默认模型" value={availableModels.includes(form.model) ? form.model : '__custom'} options={modelOptions} onChange={(value) => update('model', value === '__custom' ? '' : value)} disabled={saving || testing} /> : <input aria-label="默认模型" required disabled={saving || testing} value={form.model} onChange={(event) => update('model', event.target.value)} placeholder="模型 ID" />}
+                    <button className="model-pull-button" type="button" onClick={() => void loadModels()} disabled={loadingModels || testing || saving || !form.baseUrl} aria-label="拉取模型列表" title="从该提供商拉取模型列表">{loadingModels ? <LoaderCircle size={16} className="spin" /> : <CloudDownload size={16} />}<span>{loadingModels ? '拉取中' : '拉取'}</span></button>
+                  </div>
+                  {availableModels.length > 0 && !availableModels.includes(form.model) && <input className="model-custom-input" autoFocus required disabled={saving || testing} value={form.model} onChange={(event) => update('model', event.target.value)} placeholder="输入自定义模型 ID" aria-label="自定义模型 ID" />}
+                </div>
               </div>
-              {availableModels.length > 0 && !availableModels.includes(form.model) && (
-                <input className="model-custom-input" autoFocus required disabled={saving || testing} value={form.model} onChange={(event) => update('model', event.target.value)} placeholder="输入自定义模型 ID" aria-label="自定义模型 ID" />
-              )}
             </div>
-          </div>
+          </details>
           <div className="security-note"><ShieldCheck size={17} /><div><strong>本地加密</strong><span>API Key 仅在本地加密保存，不会发送到渲染页面</span></div></div>
           <div className="form-actions">
             <button className="secondary-button" type="button" onClick={() => void testConnection()} disabled={testing || loadingModels || saving || !form.baseUrl.trim()}>{testing ? <LoaderCircle size={16} className="spin" /> : <PlugZap size={16} />}测试连接</button>
-            <button className="primary-button" type="submit" disabled={saving || testing || loadingModels || !form.baseUrl.trim() || !form.model.trim()}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存模型提供商</button>
+            <button className="primary-button" type="submit" disabled={saving || testing || loadingModels || !form.baseUrl.trim() || !form.model.trim() || needsApiKey}>{saving ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}保存模型提供商</button>
           </div>
         </form>
       </section>

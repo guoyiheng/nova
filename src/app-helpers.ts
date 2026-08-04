@@ -25,6 +25,15 @@ export type SelectOption = {
 
 export type QueryModelOption = SelectOption & { channelId: string; model: string }
 
+export type ModelProviderPreset = {
+  id: 'openai' | 'deepseek' | 'qwen' | 'kimi' | 'glm' | 'siliconflow'
+  name: string
+  shortName: string
+  baseUrl: string
+  model: string
+  apiKeyPlaceholder: string
+}
+
 export type ChartFields = {
   categoryKey: string
   numericKeys: string[]
@@ -76,6 +85,79 @@ export const EMPTY_MODEL_CHANNEL: ModelChannelInput = {
   model: 'gpt-5-mini',
   availableModels: [],
   apiKey: '',
+}
+
+export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    shortName: 'OA',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5-mini',
+    apiKeyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    shortName: 'DS',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    apiKeyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'qwen',
+    name: '通义千问',
+    shortName: 'QW',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+    apiKeyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi',
+    shortName: 'KM',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    model: 'kimi-k2.5',
+    apiKeyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'glm',
+    name: '智谱 GLM',
+    shortName: 'GL',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    model: 'glm-4.5',
+    apiKeyPlaceholder: '填写 API Key',
+  },
+  {
+    id: 'siliconflow',
+    name: '硅基流动',
+    shortName: 'SF',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    model: 'Qwen/Qwen3-8B',
+    apiKeyPlaceholder: 'sk-...',
+  },
+]
+
+function normalizedBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, '').toLocaleLowerCase()
+}
+
+export function modelProviderPresetForBaseUrl(baseUrl: string): ModelProviderPreset | null {
+  const normalized = normalizedBaseUrl(baseUrl)
+  return MODEL_PROVIDER_PRESETS.find((preset) => normalizedBaseUrl(preset.baseUrl) === normalized) ?? null
+}
+
+export function applyModelProviderPreset(
+  current: ModelChannelInput,
+  preset: ModelProviderPreset,
+): ModelChannelInput {
+  return {
+    ...current,
+    name: preset.name,
+    baseUrl: preset.baseUrl,
+    model: preset.model,
+    availableModels: [],
+  }
 }
 
 export const QUERY_SCROLL_POSITION_KEY = 'nova_query_scroll_position'

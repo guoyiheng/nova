@@ -2839,6 +2839,105 @@ summary:focus-visible {
   max-width: 720px;
 }
 
+.provider-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.provider-picker button {
+  min-width: 0;
+  height: 54px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  text-align: left;
+  transition: border-color 120ms, background-color 120ms, color 120ms;
+}
+
+.provider-picker button:hover {
+  border-color: color-mix(in oklch, var(--accent), var(--rule-strong) 45%);
+  background: var(--surface);
+}
+
+.provider-picker button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.provider-picker button>span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: color-mix(in oklch, currentColor 9%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.provider-picker button>strong {
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-default-summary {
+  margin: -8px 0 0;
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+.provider-default-summary strong {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.provider-advanced {
+  border-top: 1px solid var(--rule);
+  padding-top: 4px;
+}
+
+.provider-advanced>summary {
+  width: max-content;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.provider-advanced>summary::-webkit-details-marker {
+  display: none;
+}
+
+.provider-advanced>summary svg {
+  transition: transform 120ms;
+}
+
+.provider-advanced[open]>summary svg {
+  transform: rotate(180deg);
+}
+
+.provider-advanced>div {
+  display: grid;
+  gap: 20px;
+  padding: 8px 0 4px;
+}
+
 .field-grid {
   display: grid;
   gap: 20px;
