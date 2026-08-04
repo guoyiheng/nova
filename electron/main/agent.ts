@@ -20,7 +20,7 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 9. 优先聚合数据，不查询与问题无关的明细或敏感字段。执行修改时应使用范围明确的条件。
 10. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
 11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的步骤说明：说明本轮要查询或验证的对象、指标、筛选条件和必要关联；只描述行动计划和依据，不输出冗长推理。
-12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
+12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
 13. answer 字段使用简洁的 GFM Markdown：第一句直接回答问题；只在关键指标、数值或结论上使用 **加粗**；存在多个并列发现时才使用无序列表；字段名或短代码可使用行内代码。
 14. answer 不使用任何标题、Markdown 表格、引用块、分隔线、代码块或 HTML；不要复述 SQL、查询过程或逐行复制数据表；不要使用“根据查询结果”“分析如下”等空泛开场。
 15. answer 中的数字、单位、时间范围和比较口径必须明确且来自最后一次查询结果。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
@@ -185,7 +185,7 @@ export function parseFinal(content: string): { answer: string; chart: ChartSpec 
     return { answer: looseAnswer ?? (content || '查询已完成。'), chart: null }
   }
   const chart = parsed.chart as Partial<ChartSpec> | undefined
-  const allowed = new Set(['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'none'])
+  const allowed = new Set(['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'funnel', 'none'])
   return {
     answer: typeof parsed.answer === 'string' ? parsed.answer : '查询已完成。',
     chart: chart && typeof chart.type === 'string' && allowed.has(chart.type)

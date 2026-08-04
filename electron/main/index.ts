@@ -94,10 +94,19 @@ const askSchema = z.object({
   model: z.string().trim().min(1).max(200),
 })
 
+const chartSpecSchema = z.object({
+  type: z.enum(['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'funnel', 'none']),
+  xKey: z.string().max(200).optional(),
+  yKey: z.string().max(200).optional(),
+  title: z.string().max(200).optional(),
+})
+
 const sqlQuerySchema = z.object({
   queryId: z.string().uuid(),
   sql: z.string().trim().min(1).max(200_000),
   dataSourceId: z.string().uuid(),
+  question: z.string().trim().min(1).max(4000).optional(),
+  chart: chartSpecSchema.nullable().optional(),
 })
 
 const savedSqlSchema = z.object({
@@ -244,7 +253,9 @@ function registerIpc() {
   })
 
   ipcMain.handle('nova:data-source:delete', (_event, id: string) => {
-    storage.deleteDataSource(z.string().uuid().parse(id))
+    const dataSourceId = z.string().uuid().parse(id)
+    if (storage.getDataSource(dataSourceId)?.type === 'demo') throw new Error('内置示例数据源不能删除，可以恢复其初始数据。')
+    storage.deleteDataSource(dataSourceId)
   })
 
   ipcMain.handle('nova:data-source:activate', (_event, id: string) => {
@@ -450,7 +461,7 @@ function registerIpc() {
       const summary = executionSummary(table)
       currentStep.success(`SQL：\n${input.sql}\n\n${describeQueryResult(table)}`, table)
       currentStep = null
-      const formattedQuestion = input.sql.replace(/\s+/g, ' ').trim().slice(0, 120) || 'SQL 查询'
+      const formattedQuestion = input.question ?? (input.sql.replace(/\s+/g, ' ').trim().slice(0, 120) || 'SQL 查询')
       return storage.saveQueryRun({
         dataSourceId: input.dataSourceId,
         dataSourceName: source.name,
@@ -458,7 +469,7 @@ function registerIpc() {
         answer: `SQL 执行完成，${summary}。`,
         sql: input.sql,
         table,
-        chart: null,
+        chart: input.chart ?? null,
         status: 'success',
         error: null,
         durationMs: Date.now() - startedAt,
@@ -468,7 +479,7 @@ function registerIpc() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'SQL 查询失败，请稍后重试。'
       currentStep?.error(message)
-      const formattedQuestion = input.sql.replace(/\s+/g, ' ').trim().slice(0, 120) || 'SQL 查询'
+      const formattedQuestion = input.question ?? (input.sql.replace(/\s+/g, ' ').trim().slice(0, 120) || 'SQL 查询')
       return storage.saveQueryRun({
         dataSourceId: input.dataSourceId,
         dataSourceName: source?.name ?? '未知数据源',
@@ -476,7 +487,7 @@ function registerIpc() {
         answer: '',
         sql: input.sql,
         table: null,
-        chart: null,
+        chart: input.chart ?? null,
         status: 'error',
         error: message,
         durationMs: Date.now() - startedAt,
@@ -501,7 +512,7 @@ function registerIpc() {
   ipcMain.handle('nova:query:update', (_event, id: string, patch) => {
     return storage.updateQueryRun(
       z.string().uuid().parse(id),
-      z.object({ isFavorite: z.boolean().optional(), isPinned: z.boolean().optional() }).parse(patch),
+      z.object({ isFavorite: z.boolean().optional(), isPinned: z.boolean().optional(), chart: chartSpecSchema.nullable().optional() }).parse(patch),
     )
   })
 
@@ -529,7 +540,7 @@ function registerIpc() {
       question: z.string().max(4000),
       answer: z.string().max(200_000),
       sql: z.string().max(200_000),
-      chart: z.object({ type: z.enum(['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'none']), xKey: z.string().optional(), yKey: z.string().optional(), title: z.string().optional() }).nullable().default(null),
+      chart: chartSpecSchema.nullable().default(null),
       status: z.enum(['success', 'error']),
       error: z.string().nullable().default(null),
       durationMs: z.number().int().min(0).default(0),
@@ -698,7 +709,7 @@ app.whenReady().then(async () => {
   protocol.handle('nova', rendererProtocolResponse)
   ensureDemoDatabase(demoDatabasePath())
   storage = new Storage(path.join(app.getPath('userData'), 'nova.sqlite'))
-  if (storage.listDataSources().length === 0) {
+  if (!storage.listDataSources().some((source) => source.type === 'demo')) {
     const demoSource = storage.saveDataSource(prepareDataSourceInput({ name: 'Nova 示例商店', type: 'demo' }))
     storage.updateDataSourceStatus(demoSource.id, 'connected')
   }

@@ -141,7 +141,7 @@ export interface QueryTable {
   affectedRows?: number
 }
 
-export type ChartType = 'bar' | 'line' | 'pie' | 'radar' | 'scatter' | 'bubble' | 'heatmap' | 'none'
+export type ChartType = 'bar' | 'line' | 'pie' | 'radar' | 'scatter' | 'bubble' | 'heatmap' | 'funnel' | 'none'
 
 export interface ChartSpec {
   type: ChartType
@@ -200,6 +200,8 @@ export interface SqlQueryInput {
   queryId: string
   sql: string
   dataSourceId: string
+  question?: string
+  chart?: ChartSpec | null
 }
 
 export interface SavedSqlInput {

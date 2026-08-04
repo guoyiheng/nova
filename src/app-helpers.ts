@@ -10,7 +10,7 @@ import type {
   SavedSql,
 } from '../electron/shared/types'
 
-export type Page = 'query' | 'history' | 'sources' | 'models' | 'settings'
+export type Page = 'query' | 'funnels' | 'history' | 'sources' | 'models' | 'settings'
 export type Toast = { tone: 'success' | 'error'; message: string }
 export type ResultChartType = Exclude<ChartType, 'none'>
 export type CardView = 'chart' | 'table' | 'json' | 'process'
@@ -50,6 +50,7 @@ export const CHART_TYPE_OPTIONS: Array<{ value: ResultChartType; label: string }
   { value: 'scatter', label: '散点图' },
   { value: 'bubble', label: '气泡图' },
   { value: 'heatmap', label: '热力图' },
+  { value: 'funnel', label: '漏斗图' },
 ]
 
 export function savedSqlForSource(items: SavedSql[], dataSourceId: string, search = '') {
@@ -197,7 +198,7 @@ export function formatBytes(value?: number) {
 export function initialPage(): Page {
   try {
     const saved = localStorage.getItem('nova_active_page')
-    if (saved && ['query', 'history', 'sources', 'models', 'settings'].includes(saved)) return saved as Page
+    if (saved && ['query', 'funnels', 'history', 'sources', 'models', 'settings'].includes(saved)) return saved as Page
   } catch {
     // ignore
   }
@@ -283,7 +284,7 @@ export function inferChartFields(run: QueryRun): ChartFields | null {
 export function inferBestChartType(run: QueryRun): ResultChartType {
   try {
     const saved = localStorage.getItem(`nova_chart_type_${run.id}`)
-    if (saved && ['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap'].includes(saved)) {
+    if (saved && ['bar', 'line', 'pie', 'radar', 'scatter', 'bubble', 'heatmap', 'funnel'].includes(saved)) {
       return saved as ResultChartType
     }
   } catch {

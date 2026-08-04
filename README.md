@@ -26,6 +26,7 @@ Nova is a desktop workspace for exploring databases without losing sight of the 
 - **Five database engines** — PostgreSQL, MySQL, MariaDB, SQL Server, and SQLite.
 - **Built-in demo store** — explore realistic customers, products, orders, and funnel events immediately.
 - **Readable results** — combines narrative answers, query details, tables, and visualizations in one workspace.
+- **Conversion funnels** — run ordered commerce, activation, or subscription funnels against any connected database.
 - **Provider presets** — configure OpenAI, DeepSeek, Qwen, Kimi, GLM, or SiliconFlow with only an API key.
 - **Reusable research** — search, pin, and favorite previous queries across multiple data sources.
 - **Local-first storage** — application data stays in Electron's local `userData` directory.

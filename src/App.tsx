@@ -19,6 +19,7 @@ import {
   ExternalLink,
   FileCode2,
   FolderOpen,
+  GitMerge,
   History,
   Import,
   Info,
@@ -112,6 +113,7 @@ import {
   type Toast,
 } from './app-helpers'
 import { parseDataSourceUrl } from './data-source-url'
+import { buildFunnelSql, parseFunnelSteps } from './funnel'
 import { MarkdownAnswer } from './MarkdownAnswer'
 
 type SettingsSectionId = 'migration' | 'about'
@@ -128,6 +130,39 @@ const DEMO_SQL_EXAMPLES = [
   {
     label: '查看转化漏斗',
     sql: "SELECT event_name AS 阶段, COUNT(DISTINCT visitor_id) AS 用户数 FROM funnel_events GROUP BY event_name ORDER BY CASE event_name WHEN '访问网站' THEN 1 WHEN '浏览商品' THEN 2 WHEN '加入购物车' THEN 3 WHEN '开始结算' THEN 4 WHEN '完成购买' THEN 5 END;",
+  },
+]
+
+const FUNNEL_TEMPLATES = [
+  {
+    id: 'commerce',
+    name: '电商购买',
+    description: '访问到下单',
+    table: 'funnel_events',
+    actorColumn: 'visitor_id',
+    eventColumn: 'event_name',
+    timeColumn: 'occurred_at',
+    steps: ['访问网站', '浏览商品', '加入购物车', '开始结算', '完成购买'],
+  },
+  {
+    id: 'activation',
+    name: '产品激活',
+    description: '注册到核心使用',
+    table: 'events',
+    actorColumn: 'user_id',
+    eventColumn: 'event_name',
+    timeColumn: 'created_at',
+    steps: ['完成注册', '创建项目', '邀请成员', '首次使用', '完成激活'],
+  },
+  {
+    id: 'subscription',
+    name: '试用付费',
+    description: '访问到订阅',
+    table: 'events',
+    actorColumn: 'user_id',
+    eventColumn: 'event_name',
+    timeColumn: 'created_at',
+    steps: ['访问产品', '创建账号', '开始试用', '使用核心功能', '完成订阅'],
   },
 ]
 
@@ -262,6 +297,7 @@ export function App() {
 
         <nav className="primary-nav" aria-label="主导航">
           <NavButton active={page === 'query'} label="查询" icon={Search} onClick={() => setPage('query')} />
+          <NavButton active={page === 'funnels'} label="漏斗" icon={GitMerge} onClick={() => setPage('funnels')} />
           <NavButton active={page === 'history'} label="历史" icon={History} onClick={() => setPage('history')} />
           <NavButton active={page === 'sources'} label="数据源" icon={Database} onClick={() => setPage('sources')} />
           <NavButton active={page === 'models'} label="模型" icon={Sparkles} onClick={() => setPage('models')} />
@@ -298,6 +334,7 @@ export function App() {
               showToast={showToast}
             />
           )}
+          {page === 'funnels' && <FunnelView data={data} onDataChange={refresh} showToast={showToast} />}
           {page === 'sources' && (
             <SourcesView
               sources={data.dataSources}
@@ -1314,7 +1351,7 @@ function ResultChart({ run, type, fields, onTypeChange }: {
   onTypeChange: (type: ResultChartType) => void
 }) {
   if (!run.table) return null
-  const limit = type === 'pie' || type === 'radar' ? 12 : 24
+  const limit = type === 'pie' || type === 'radar' || type === 'funnel' ? 12 : 24
   const data = run.table.rows.slice(0, limit).map((row, index) => {
     const normalized: Record<string, unknown> = {
       ...row,
@@ -1359,6 +1396,8 @@ function ResultChart({ run, type, fields, onTypeChange }: {
       </div>
       {type === 'heatmap' ? (
         <ResultHeatmap run={run} fields={fields} />
+      ) : type === 'funnel' ? (
+        <ResultFunnel run={run} fields={fields} />
       ) : (
         <div className="chart-graphic" role="img" aria-label={run.chart?.title ?? run.question}>
           <ResponsiveContainer width="100%" height={286}>
@@ -1438,6 +1477,35 @@ function ResultChart({ run, type, fields, onTypeChange }: {
           </ResponsiveContainer>
         </div>
       )}
+    </div>
+  )
+}
+
+function ResultFunnel({ run, fields }: { run: QueryRun; fields: ChartFields }) {
+  if (!run.table) return null
+  const rows = run.table.rows.slice(0, 12).map((row, index) => ({
+    stage: String(row[fields.categoryKey] ?? index + 1),
+    users: Math.max(0, numericValue(row[fields.yKey]) ?? 0),
+  }))
+  const maximum = Math.max(...rows.map((row) => row.users), 1)
+  const baseline = rows[0]?.users ?? 0
+
+  return (
+    <div className="funnel-chart" role="img" aria-label={run.chart?.title ?? run.question}>
+      {rows.map((row, index) => {
+        const previous = index > 0 ? rows[index - 1]!.users : row.users
+        const stepRate = previous > 0 ? (row.users / previous) * 100 : 0
+        const totalRate = baseline > 0 ? (row.users / baseline) * 100 : 0
+        return (
+          <div className="funnel-chart-row" key={`${row.stage}-${index}`}>
+            <div className="funnel-chart-meta"><span>{index + 1}</span><strong>{row.stage}</strong><b>{row.users.toLocaleString()}</b></div>
+            <div className="funnel-chart-track">
+              <div style={{ width: `${Math.max(18, (row.users / maximum) * 100)}%` }}><span>{index === 0 ? '起点' : `上一步 ${stepRate.toFixed(1)}%`}</span></div>
+            </div>
+            <small>总体 {totalRate.toFixed(1)}%</small>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -1743,6 +1811,122 @@ function ResultJson({ run, showToast }: { run: QueryRun; showToast?: (message: s
   )
 }
 
+function FunnelView({ data, onDataChange, showToast }: {
+  data: BootstrapData
+  onDataChange: () => Promise<void>
+  showToast: (message: string, tone?: Toast['tone']) => void
+}) {
+  const defaultSource = data.dataSources.find((source) => source.type === 'demo') ?? data.dataSources[0] ?? null
+  const defaultTemplate = FUNNEL_TEMPLATES[0]
+  const [sourceId, setSourceId] = useState(defaultSource?.id ?? '')
+  const [templateId, setTemplateId] = useState(defaultTemplate.id)
+  const [table, setTable] = useState(defaultTemplate.table)
+  const [actorColumn, setActorColumn] = useState(defaultTemplate.actorColumn)
+  const [eventColumn, setEventColumn] = useState(defaultTemplate.eventColumn)
+  const [timeColumn, setTimeColumn] = useState(defaultTemplate.timeColumn)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [stepsText, setStepsText] = useState(defaultTemplate.steps.join('\n'))
+  const [running, setRunning] = useState(false)
+  const [resultId, setResultId] = useState<string | null>(null)
+  const [lastResult, setLastResult] = useState<QueryRun | null>(null)
+  const source = data.dataSources.find((item) => item.id === sourceId) ?? defaultSource
+  const steps = parseFunnelSteps(stepsText)
+  const result = data.queryRuns.find((run) => run.id === resultId) ?? lastResult
+
+  useEffect(() => {
+    if (!sourceId && defaultSource) setSourceId(defaultSource.id)
+  }, [defaultSource?.id, sourceId])
+
+  const selectTemplate = (id: string) => {
+    const template = FUNNEL_TEMPLATES.find((item) => item.id === id) ?? defaultTemplate
+    setTemplateId(template.id)
+    setTable(template.table)
+    setActorColumn(template.actorColumn)
+    setEventColumn(template.eventColumn)
+    setTimeColumn(template.timeColumn)
+    setStepsText(template.steps.join('\n'))
+  }
+
+  const runFunnel = async () => {
+    if (!source) {
+      showToast('请先添加数据源', 'error')
+      return
+    }
+    setRunning(true)
+    try {
+      const sql = buildFunnelSql({ table, actorColumn, eventColumn, timeColumn, startDate, endDate, steps }, source.type)
+      const templateName = FUNNEL_TEMPLATES.find((item) => item.id === templateId)?.name ?? '转化漏斗'
+      const run = await window.nova.executeSql({
+        queryId: crypto.randomUUID(),
+        dataSourceId: source.id,
+        sql,
+        question: `${templateName}：${steps.join(' → ')}`,
+        chart: { type: 'funnel', xKey: 'stage', yKey: 'users', title: `${templateName}转化` },
+      })
+      setLastResult(run)
+      setResultId(run.id)
+      await onDataChange()
+      showToast(run.status === 'success' ? '漏斗分析已完成' : run.error ?? '漏斗分析失败', run.status === 'success' ? 'success' : 'error')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="funnel-page">
+      <header className="workspace-page-heading">
+        <div><span className="eyebrow">CONVERSION</span><h1>漏斗分析</h1><p>按用户去重，观察关键步骤之间的流失</p></div>
+        <button className="primary-button" onClick={() => void runFunnel()} disabled={running || !source || steps.length < 2}>
+          {running ? <LoaderCircle size={16} className="spin" /> : <GitMerge size={16} />}{running ? '正在分析' : '运行漏斗'}
+        </button>
+      </header>
+
+      <div className="funnel-workspace">
+        <section className="funnel-config">
+          <div className="funnel-template-picker" role="radiogroup" aria-label="常用漏斗模板">
+            {FUNNEL_TEMPLATES.map((template) => (
+              <button key={template.id} role="radio" aria-checked={templateId === template.id} className={templateId === template.id ? 'active' : ''} onClick={() => selectTemplate(template.id)}>
+                <strong>{template.name}</strong><span>{template.description}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="funnel-fields">
+            <div className="field"><span>数据源</span><SelectControl ariaLabel="漏斗数据源" value={source?.id ?? ''} options={data.dataSources.map((item) => ({ value: item.id, label: item.name, meta: DATABASE_TYPES.find((type) => type.value === item.type)?.label }))} onChange={setSourceId} /></div>
+            <label className="field"><span>事件表<i className="required-mark" aria-hidden="true">*</i></span><input value={table} onChange={(event) => setTable(event.target.value)} placeholder="events" /></label>
+            <div className="field-grid two">
+              <label className="field"><span>用户标识字段<i className="required-mark" aria-hidden="true">*</i></span><input value={actorColumn} onChange={(event) => setActorColumn(event.target.value)} placeholder="user_id" /></label>
+              <label className="field"><span>事件名称字段<i className="required-mark" aria-hidden="true">*</i></span><input value={eventColumn} onChange={(event) => setEventColumn(event.target.value)} placeholder="event_name" /></label>
+            </div>
+            <label className="field"><span>时间字段</span><input value={timeColumn} onChange={(event) => setTimeColumn(event.target.value)} placeholder="created_at（可选）" /></label>
+            <div className="field-grid two">
+              <label className="field"><span>开始日期</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+              <label className="field"><span>结束日期</span><input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+            </div>
+            <label className="field funnel-steps-field"><span>步骤顺序<i className="required-mark" aria-hidden="true">*</i></span><textarea value={stepsText} onChange={(event) => setStepsText(event.target.value)} rows={6} placeholder={'访问\n注册\n购买'} /></label>
+          </div>
+        </section>
+
+        <section className="funnel-result">
+          {result ? (
+            <RunCard run={result} savedSql={data.savedSql} onDataChange={onDataChange} showToast={showToast} defaultView="chart" />
+          ) : (
+            <div className="funnel-preview">
+              <div><span>预览</span><strong>{steps.length} 个步骤</strong></div>
+              <div className="funnel-preview-bars">
+                {steps.map((step, index) => <div key={`${step}-${index}`} style={{ width: `${Math.max(42, 100 - index * 11)}%` }}><span>{index + 1}</span><strong>{step}</strong></div>)}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  )
+}
+
 function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, activeRunId, onActiveRunChange, onDataChange, showToast }: {
   runs: QueryRun[]
   savedSql: SavedSql[]
@@ -1797,8 +1981,11 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
   }
 
   return (
-    <div className="history-layout">
-      <section className="history-index">
+    <div className="sources-layout history-layout">
+      <section className="source-index history-index">
+        <div className="source-index-heading">
+          <div><h1>历史</h1><span>{filtered.length} 条记录</span></div>
+        </div>
         <div className="history-tools">
           <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索问题或结果" aria-label="搜索历史" /></label>
           <div className="history-filter-row">
@@ -1831,23 +2018,24 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
             <button className={filter === 'favorite' ? 'active' : ''} onClick={() => setFilter('favorite')}><Star size={14} />收藏</button>
           </div>
         </div>
-        <div className="history-list">
+        <div className="source-list history-list">
           {filtered.map((run) => (
-            <button key={run.id} className={`history-item ${active?.id === run.id ? 'active' : ''}`} onClick={() => onActiveRunChange(run.id)}>
-              <div className="history-item-top">
-                <span className={run.status === 'success' ? 'success-dot' : 'error-dot'} />
-                <span>{run.dataSourceName}</span>
-                <time>{formatTime(run.createdAt)}</time>
-                {run.isPinned && <Pin size={13} fill="currentColor" />}
-              </div>
-              <strong>{run.question}</strong>
-              <p>{run.status === 'error' ? run.error : run.answer}</p>
+            <button key={run.id} className={`source-item history-item ${active?.id === run.id ? 'active' : ''}`} onClick={() => onActiveRunChange(run.id)}>
+              <span className={`history-item-glyph ${run.mode}`} aria-hidden="true">
+                {run.mode === 'smart' ? <Sparkles size={15} /> : <FileCode2 size={15} />}
+              </span>
+              <span>
+                <strong>{run.question}</strong>
+                <small>{run.dataSourceName} · {formatTime(run.createdAt)}</small>
+              </span>
+              <i className={`status-dot ${run.status === 'success' ? 'connected' : 'failed'}`} title={run.status === 'success' ? '查询成功' : '查询失败'} />
+              {run.isPinned && <Pin className="history-pin" size={13} fill="currentColor" aria-label="已置顶" />}
             </button>
           ))}
           {!filtered.length && <div className="list-empty"><History size={22} /><span>没有匹配的查询记录</span></div>}
         </div>
       </section>
-      <section className="history-detail">
+      <section className="source-editor history-detail">
         {active ? <RunCard run={active} savedSql={savedSql} onDataChange={onDataChange} showToast={showToast} defaultView="table" allowPin onRetry={retry} /> : <div className="detail-empty"><Clock3 size={25} /><span>选择一条查询记录</span></div>}
       </section>
     </div>
@@ -2305,7 +2493,7 @@ function SourcesView({ sources, activeSourceId, onDataChange, showToast }: {
       <section className="source-editor">
         <div className={`editor-heading ${selected ? 'has-tabs' : ''}`}>
           <div><h2>{selected ? selected.name : '添加数据源'}</h2></div>
-          {selected && <button className="danger-icon-button" onClick={() => void remove()} aria-label="删除数据源" title="删除数据源"><Trash2 size={17} /></button>}
+          {selected && selected.type !== 'demo' && <button className="danger-icon-button" onClick={() => void remove()} aria-label="删除数据源" title="删除数据源"><Trash2 size={17} /></button>}
         </div>
 
         {selected && (
