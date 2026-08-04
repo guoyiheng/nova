@@ -23,6 +23,7 @@ import {
   History,
   Import,
   Info,
+  ListFilter,
   LoaderCircle,
   Maximize2,
   PackageOpen,
@@ -2122,6 +2123,9 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
   const [filter, setFilter] = useState<'all' | 'favorite'>('all')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [modeFilter, setModeFilter] = useState<'all' | QueryMode>('all')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filtersRef = useRef<HTMLDivElement>(null)
+  const activeFilterCount = Number(sourceFilter !== 'all') + Number(modeFilter !== 'all')
   const filtered = useMemo(() => runs.filter((run) => {
     const matchesSearch = `${run.question} ${run.answer} ${run.sql} ${run.dataSourceName}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())
     const matchesFavorite = filter === 'all' || run.isFavorite
@@ -2130,6 +2134,22 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
     return matchesSearch && matchesFavorite && matchesSource && matchesMode
   }), [filter, modeFilter, runs, search, sourceFilter])
   const active = filtered.find((run) => run.id === activeRunId) ?? filtered[0] ?? null
+
+  useEffect(() => {
+    if (!filtersOpen) return
+    const closeFilters = (event: MouseEvent) => {
+      if (!filtersRef.current?.contains(event.target as Node)) setFiltersOpen(false)
+    }
+    const closeFiltersOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFiltersOpen(false)
+    }
+    document.addEventListener('mousedown', closeFilters)
+    document.addEventListener('keydown', closeFiltersOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeFilters)
+      document.removeEventListener('keydown', closeFiltersOnEscape)
+    }
+  }, [filtersOpen])
 
   const retry = async (run: QueryRun) => {
     try {
@@ -2167,31 +2187,59 @@ function HistoryView({ runs, savedSql, sources, modelChannels, onOpenQuery, acti
           <div><h1>历史</h1><span aria-live="polite">{filtered.length} 条记录</span></div>
         </div>
         <div className="history-tools">
-          <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索问题或结果" aria-label="搜索历史" /></label>
-          <div className="history-filter-row">
-            <SelectControl
-              className="history-filter-select"
-              ariaLabel="按数据源筛选历史"
-              icon={<Database size={14} />}
-              value={sourceFilter}
-              options={[
-                { value: 'all', label: '全部数据源' },
-                ...sources.map((source) => ({ value: source.id, label: source.name })),
-              ]}
-              onChange={setSourceFilter}
-            />
-            <SelectControl
-              className="history-filter-select history-mode-select"
-              ariaLabel="按查询方式筛选历史"
-              icon={<Braces size={14} />}
-              value={modeFilter}
-              options={[
-                { value: 'all', label: '全部方式' },
-                { value: 'smart', label: '智能查询' },
-                { value: 'sql', label: 'SQL 查询' },
-              ]}
-              onChange={(value) => setModeFilter(value as 'all' | QueryMode)}
-            />
+          <div className="history-search-row">
+            <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索问题或结果" aria-label="搜索历史" /></label>
+            <div className="history-filter-popover" ref={filtersRef}>
+              <button
+                type="button"
+                className={`history-filter-button ${filtersOpen ? 'open' : ''} ${activeFilterCount ? 'filtered' : ''}`}
+                aria-label={activeFilterCount ? `筛选查询记录，已启用 ${activeFilterCount} 项条件` : '筛选查询记录'}
+                aria-haspopup="dialog"
+                aria-expanded={filtersOpen}
+                title="筛选"
+                onClick={() => setFiltersOpen((open) => !open)}
+              >
+                <ListFilter size={17} />
+                {activeFilterCount > 0 && <span aria-hidden="true">{activeFilterCount}</span>}
+              </button>
+              {filtersOpen && (
+                <div className="history-filter-panel" role="dialog" aria-label="历史筛选条件">
+                  <header>
+                    <strong>筛选条件</strong>
+                    {activeFilterCount > 0 && <button type="button" onClick={() => { setSourceFilter('all'); setModeFilter('all') }}>重置</button>}
+                  </header>
+                  <div className="history-filter-field">
+                    <span>数据源</span>
+                    <SelectControl
+                      className="history-filter-select"
+                      ariaLabel="按数据源筛选历史"
+                      icon={<Database size={14} />}
+                      value={sourceFilter}
+                      options={[
+                        { value: 'all', label: '全部数据源' },
+                        ...sources.map((source) => ({ value: source.id, label: source.name })),
+                      ]}
+                      onChange={setSourceFilter}
+                    />
+                  </div>
+                  <div className="history-filter-field">
+                    <span>查询方式</span>
+                    <SelectControl
+                      className="history-filter-select"
+                      ariaLabel="按查询方式筛选历史"
+                      icon={<Braces size={14} />}
+                      value={modeFilter}
+                      options={[
+                        { value: 'all', label: '全部方式' },
+                        { value: 'smart', label: '智能查询' },
+                        { value: 'sql', label: 'SQL 查询' },
+                      ]}
+                      onChange={(value) => setModeFilter(value as 'all' | QueryMode)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <div className="segmented">
             <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>全部</button>
