@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import type { ChatCompletionFunctionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
-import type { AgentProgressEvent, AgentStage, ChartSpec, DataSource, QueryTable } from '../shared/types.js'
+import type { AgentProgressEvent, AgentStage, ChartSpec, DataSource, FunnelRecommendation, QueryTable } from '../shared/types.js'
 import { DbhubSession, loadSchemaSnapshot, parseQueryTable, toolResultText } from './dbhub.js'
 import { buildDsn, changesSchemaSql } from './dbhub-utils.js'
 import { resolveSchemaSnapshot } from './schema-cache.js'
@@ -197,6 +197,55 @@ export function parseFinal(content: string): { answer: string; chart: ChartSpec 
         }
       : null,
   }
+}
+
+export function parseFunnelRecommendations(content: string): FunnelRecommendation[] {
+  const parsed = parseJsonObject(content)
+  const raw = Array.isArray(parsed?.recommendations) ? parsed.recommendations : []
+  return raw.slice(0, 4).flatMap((item, index) => {
+    if (!item || typeof item !== 'object') return []
+    const candidate = item as Record<string, unknown>
+    const steps = Array.isArray(candidate.steps)
+      ? Array.from(new Set(candidate.steps.filter((step): step is string => typeof step === 'string').map((step) => step.trim()).filter(Boolean))).slice(0, 12)
+      : []
+    const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
+    if (!name || steps.length < 2) return []
+    return [{
+      id: `recommendation-${index + 1}`,
+      name: name.slice(0, 80),
+      description: typeof candidate.description === 'string' ? candidate.description.trim().slice(0, 180) : '根据现有事件数据生成的转化路径',
+      steps,
+      reason: typeof candidate.reason === 'string' ? candidate.reason.trim().slice(0, 240) : '结构缓存中存在可用于分析的事件数据',
+    }]
+  })
+}
+
+export async function recommendFunnels(options: {
+  schemaJson: string
+  sourceType: DataSource['type']
+  apiKey: string
+  baseUrl: string
+  model: string
+  focus?: string
+}): Promise<FunnelRecommendation[]> {
+  const client = createModelClient(options.apiKey, options.baseUrl)
+  const schemaContext = buildSchemaContext(options.schemaJson, options.focus?.trim() || '识别适合做用户转化漏斗的事件数据')
+  const focus = options.focus?.trim() ? `用户关注点：${options.focus.trim()}` : '用户没有额外关注点，请优先推荐最有业务价值的路径。'
+  const completion = await client.chat.completions.create({
+    model: options.model,
+    temperature: 0.2,
+    messages: [
+      {
+        role: 'system',
+        content: '你是 Nova 的漏斗分析顾问。你只分析数据库结构，不执行 SQL。根据结构缓存推断事件表、用户行为和业务路径，但不要输出表名、字段名或内部技术细节。只返回严格 JSON，格式为 {"recommendations":[{"name":"...","description":"...","steps":["...","..."],"reason":"..."}]}。最多返回 4 个推荐，每个推荐 2 到 8 个简短、面向用户的业务步骤；如果结构不足以支持漏斗，返回空数组。',
+      },
+      {
+        role: 'user',
+        content: `数据库类型：${options.sourceType}\n${focus}\n结构缓存：\n${schemaContext}`,
+      },
+    ],
+  })
+  return parseFunnelRecommendations(completion.choices[0]?.message?.content ?? '')
 }
 
 function stripCodeFence(value: string) {

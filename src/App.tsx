@@ -78,6 +78,7 @@ import type {
   Dashboard,
   DashboardCard,
   DashboardInput,
+  FunnelRecommendation,
   ModelChannel,
   ModelChannelInput,
   QueryRun,
@@ -124,7 +125,6 @@ import {
   type Toast,
 } from './app-helpers'
 import { parseDataSourceUrl } from './data-source-url'
-import { parseFunnelSteps } from './funnel'
 import { MarkdownAnswer } from './MarkdownAnswer'
 
 type SettingsSectionId = 'sources' | 'models' | 'migration' | 'about'
@@ -141,27 +141,6 @@ const DEMO_SQL_EXAMPLES = [
   {
     label: '查看转化漏斗',
     sql: "SELECT event_name AS 阶段, COUNT(DISTINCT visitor_id) AS 用户数 FROM funnel_events GROUP BY event_name ORDER BY CASE event_name WHEN '访问网站' THEN 1 WHEN '浏览商品' THEN 2 WHEN '加入购物车' THEN 3 WHEN '开始结算' THEN 4 WHEN '完成购买' THEN 5 END;",
-  },
-]
-
-const FUNNEL_TEMPLATES = [
-  {
-    id: 'commerce',
-    name: '电商购买',
-    description: '访问到下单',
-    steps: ['访问网站', '浏览商品', '加入购物车', '开始结算', '完成购买'],
-  },
-  {
-    id: 'activation',
-    name: '产品激活',
-    description: '注册到核心使用',
-    steps: ['完成注册', '创建项目', '邀请成员', '首次使用', '完成激活'],
-  },
-  {
-    id: 'subscription',
-    name: '试用付费',
-    description: '访问到订阅',
-    steps: ['访问产品', '创建账号', '开始试用', '使用核心功能', '完成订阅'],
   },
 ]
 
@@ -2146,21 +2125,20 @@ function FunnelView({ data, onDataChange, showToast }: {
   showToast: (message: string, tone?: Toast['tone']) => void
 }) {
   const defaultSource = data.dataSources.find((source) => source.type === 'demo') ?? data.dataSources[0] ?? null
-  const defaultTemplate = FUNNEL_TEMPLATES[0]
   const [sourceId, setSourceId] = useState(defaultSource?.id ?? '')
-  const [templateId, setTemplateId] = useState(defaultTemplate.id)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [stepsText, setStepsText] = useState(defaultTemplate.steps.join('\n'))
+  const [focus, setFocus] = useState('')
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false)
   const [running, setRunning] = useState(false)
+  const [recommendations, setRecommendations] = useState<FunnelRecommendation[]>([])
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(null)
   const [resultId, setResultId] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<QueryRun | null>(null)
   const source = data.dataSources.find((item) => item.id === sourceId) ?? defaultSource
   const modelOptions = useMemo(() => queryModelOptions(data.modelChannels), [data.modelChannels])
   const [queryModel, setQueryModel] = useState(modelOptions[0]?.value ?? '')
   const selectedModel = modelOptions.find((option) => option.value === queryModel) ?? modelOptions[0]
-  const steps = parseFunnelSteps(stepsText)
   const result = data.queryRuns.find((run) => run.id === resultId) ?? lastResult
+  const selectedRecommendation = recommendations.find((item) => item.id === selectedRecommendationId) ?? null
 
   useEffect(() => {
     if (!sourceId && defaultSource) setSourceId(defaultSource.id)
@@ -2170,13 +2148,7 @@ function FunnelView({ data, onDataChange, showToast }: {
     if (!modelOptions.some((option) => option.value === queryModel)) setQueryModel(modelOptions[0]?.value ?? '')
   }, [modelOptions, queryModel])
 
-  const selectTemplate = (id: string) => {
-    const template = FUNNEL_TEMPLATES.find((item) => item.id === id) ?? defaultTemplate
-    setTemplateId(template.id)
-    setStepsText(template.steps.join('\n'))
-  }
-
-  const runFunnel = async () => {
+  const generateRecommendations = async () => {
     if (!source) {
       showToast('请先添加数据源', 'error')
       return
@@ -2185,13 +2157,30 @@ function FunnelView({ data, onDataChange, showToast }: {
       showToast('请先添加可用的模型提供商', 'error')
       return
     }
+    setLoadingRecommendations(true)
+    try {
+      const nextRecommendations = await window.nova.recommendFunnels({
+        dataSourceId: source.id,
+        modelChannelId: selectedModel.channelId,
+        model: selectedModel.model,
+        focus: focus.trim() || undefined,
+      })
+      setRecommendations(nextRecommendations)
+      setSelectedRecommendationId(nextRecommendations[0]?.id ?? null)
+      if (!nextRecommendations.length) showToast('暂时没有识别到适合的事件路径，请补充关注点后重试', 'error')
+      else showToast('已生成漏斗建议', 'success')
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setLoadingRecommendations(false)
+    }
+  }
+
+  const runFunnel = async () => {
+    if (!source || !selectedModel || !selectedRecommendation) return
     setRunning(true)
     try {
-      const templateName = FUNNEL_TEMPLATES.find((item) => item.id === templateId)?.name ?? '转化漏斗'
-      const dateScope = startDate || endDate
-        ? `仅分析${startDate ? `${startDate} 起` : '最早记录起'}至${endDate || '当前'}的数据。`
-        : '分析当前数据库中可用的完整时间范围。'
-      const displayQuestion = `${templateName}：${steps.join(' → ')}`
+      const displayQuestion = `${selectedRecommendation.name}：${selectedRecommendation.steps.join(' → ')}`
       const run = await window.nova.ask({
         queryId: crypto.randomUUID(),
         dataSourceId: source.id,
@@ -2199,15 +2188,14 @@ function FunnelView({ data, onDataChange, showToast }: {
         model: selectedModel.model,
         displayQuestion,
         question: [
-          '请根据数据库结构自动识别最合适的事件明细表、用户标识字段、事件名称字段和时间字段，完成一个严格按顺序递进的用户转化漏斗。',
-          `业务步骤依次为：${steps.join(' → ')}。`,
-          dateScope,
+          '请读取结构缓存，自动识别最合适的事件明细表、用户标识字段、事件名称字段和时间字段，完成一个严格按顺序递进的用户转化漏斗。',
+          `业务步骤依次为：${selectedRecommendation.steps.join(' → ')}。`,
           '每位用户必须完成前序步骤后才计入下一步；结果必须按上述步骤顺序返回两列：stage（步骤名称）和 users（去重用户数）。',
-          '请只执行只读查询，并简要说明你识别到的数据表和统计口径。',
+          '请只执行只读查询，并在结论中给出流失点和可执行建议，不要展示表名或字段名。',
         ].join('\n'),
       })
       const next = run.status === 'success'
-        ? await window.nova.updateQueryRun(run.id, { chart: { type: 'funnel', xKey: 'stage', yKey: 'users', title: `${templateName}转化` } })
+        ? await window.nova.updateQueryRun(run.id, { chart: { type: 'funnel', xKey: 'stage', yKey: 'users', title: `${selectedRecommendation.name}转化` } })
         : run
       setLastResult(next)
       setResultId(next.id)
@@ -2223,45 +2211,43 @@ function FunnelView({ data, onDataChange, showToast }: {
   return (
     <div className="funnel-page">
       <header className="workspace-page-heading">
-        <div><span className="eyebrow">CONVERSION</span><h1>漏斗分析</h1><p>按用户去重，观察关键步骤之间的流失</p></div>
-        <button className="primary-button" onClick={() => void runFunnel()} disabled={running || !source || !selectedModel || steps.length < 2}>
-          {running ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}{running ? '正在识别并分析' : '智能分析漏斗'}
+        <div><span className="eyebrow">CONVERSION</span><h1>漏斗分析</h1><p>Nova 从结构缓存识别事件路径，推荐最值得关注的转化分析</p></div>
+        <button className="primary-button" onClick={() => void generateRecommendations()} disabled={loadingRecommendations || running || !source || !selectedModel}>
+          {loadingRecommendations ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}{loadingRecommendations ? '正在生成建议' : '生成漏斗建议'}
         </button>
       </header>
 
       <div className="funnel-workspace">
         <section className="funnel-config">
-          <div className="funnel-template-picker" role="radiogroup" aria-label="常用漏斗模板">
-            {FUNNEL_TEMPLATES.map((template) => (
-              <button key={template.id} role="radio" aria-checked={templateId === template.id} className={templateId === template.id ? 'active' : ''} onClick={() => selectTemplate(template.id)}>
-                <strong>{template.name}</strong><span>{template.description}</span>
-              </button>
-            ))}
-          </div>
-
           <div className="funnel-fields">
             <div className="field-grid two">
               <div className="field"><span>数据源<i className="required-mark" aria-hidden="true">*</i></span><SelectControl ariaLabel="漏斗数据源" value={source?.id ?? ''} options={data.dataSources.map((item) => ({ value: item.id, label: item.name, meta: DATABASE_TYPES.find((type) => type.value === item.type)?.label }))} onChange={setSourceId} /></div>
               <div className="field"><span>分析模型<i className="required-mark" aria-hidden="true">*</i></span><SelectControl ariaLabel="漏斗分析模型" value={selectedModel?.value ?? ''} options={modelOptions} placeholder="选择模型" onChange={setQueryModel} /></div>
             </div>
             <div className="funnel-auto-note"><Sparkles size={16} /><div><strong>不用填写表名和字段</strong><span>Nova 会读取结构缓存，自动识别事件数据和用户标识</span></div></div>
-            <label className="field funnel-steps-field"><span>业务步骤<i className="required-mark" aria-hidden="true">*</i></span><textarea value={stepsText} onChange={(event) => setStepsText(event.target.value)} rows={6} placeholder={'访问\n注册\n购买'} /><small>每行一个你熟悉的业务动作，按发生顺序排列</small></label>
-            <div className="field-grid two">
-              <label className="field"><span>开始日期</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-              <label className="field"><span>结束日期</span><input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
-            </div>
+            <label className="field"><span>业务关注点</span><textarea className="funnel-focus-input" value={focus} onChange={(event) => setFocus(event.target.value)} rows={3} placeholder="例如：重点看从注册到首次使用的流失" /><small>可选。留空时 Nova 会根据现有事件自动选择重点路径</small></label>
           </div>
         </section>
 
         <section className="funnel-result">
-          {result ? (
+          {result && !running ? (
             <RunCard run={result} savedSql={data.savedSql} onDataChange={onDataChange} showToast={showToast} defaultView="chart" />
+          ) : recommendations.length ? (
+            <div className="funnel-recommendations">
+              <header><div><span className="eyebrow">RECOMMENDATIONS</span><h2>推荐分析路径</h2><p>选择一个路径，Nova 会按严格顺序计算每一步的用户转化。</p></div><button className="secondary-button" onClick={() => void runFunnel()} disabled={!selectedRecommendation || running}>{running ? <LoaderCircle size={15} className="spin" /> : <Sparkles size={15} />}开始分析</button></header>
+              <div className="funnel-recommendation-list">
+                {recommendations.map((recommendation) => <button key={recommendation.id} className={selectedRecommendationId === recommendation.id ? 'active' : ''} onClick={() => setSelectedRecommendationId(recommendation.id)}>
+                  <span className="funnel-recommendation-heading"><strong>{recommendation.name}</strong><small>{recommendation.description}</small></span>
+                  <span className="funnel-step-list">{recommendation.steps.map((step, index) => <span key={`${recommendation.id}-${step}`}><i>{index + 1}</i>{step}</span>)}</span>
+                  <span className="funnel-recommendation-reason"><Info size={14} />{recommendation.reason}</span>
+                </button>)}
+              </div>
+            </div>
           ) : (
             <div className="funnel-preview">
-              <div><span>预览</span><strong>{steps.length} 个步骤</strong></div>
-              <div className="funnel-preview-bars">
-                {steps.map((step, index) => <div key={`${step}-${index}`} style={{ width: `${Math.max(42, 100 - index * 11)}%` }}><span>{index + 1}</span><strong>{step}</strong></div>)}
-              </div>
+              <Sparkles size={28} />
+              <strong>生成你的第一份漏斗建议</strong>
+              <span>Nova 会读取结构缓存，识别事件数据和用户标识，并给出适合你业务的分析路径。</span>
             </div>
           )}
         </section>

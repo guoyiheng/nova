@@ -13,6 +13,7 @@ import {
   formatAgentError,
   overallAggregateNeedsCorrection,
   parseFinal,
+  parseFunnelRecommendations,
   parseToolArguments,
   SYSTEM_PROMPT,
 } from './agent.js'
@@ -132,6 +133,29 @@ describe('parseFinal', () => {
       answer: '查询到2个"人皇幡"相关项目：\n\n**项目1：贫道不好惹**\n- 总消耗积分：349,064 星币',
       chart: null,
     })
+  })
+})
+
+describe('parseFunnelRecommendations', () => {
+  it('normalizes valid recommendations and hides malformed entries', () => {
+    expect(parseFunnelRecommendations(JSON.stringify({ recommendations: [
+      { name: '购买转化', description: '从访问到支付', steps: ['访问', '浏览', '浏览', '购买'], reason: '事件路径完整' },
+      { name: '无效路径', steps: ['只有一步'] },
+    ] }))).toEqual([{
+      id: 'recommendation-1',
+      name: '购买转化',
+      description: '从访问到支付',
+      steps: ['访问', '浏览', '购买'],
+      reason: '事件路径完整',
+    }])
+  })
+
+  it('accepts fenced JSON and limits the result count', () => {
+    const recommendations = Array.from({ length: 6 }, (_, index) => ({
+      name: `路径 ${index + 1}`,
+      steps: ['开始', '完成'],
+    }))
+    expect(parseFunnelRecommendations(`\`\`\`json\n${JSON.stringify({ recommendations })}\n\`\`\``)).toHaveLength(4)
   })
 })
 

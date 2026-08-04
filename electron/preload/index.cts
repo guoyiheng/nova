@@ -17,6 +17,7 @@ const api: NovaApi = {
   listModels: (input: ModelListInput) => ipcRenderer.invoke('nova:model:list', input),
   completeInitialSetup: (input: InitialSetupInput) => ipcRenderer.invoke('nova:setup:complete', input),
   ask: (input: AskInput) => ipcRenderer.invoke('nova:agent:ask', input),
+  recommendFunnels: (input) => ipcRenderer.invoke('nova:funnel:recommend', input),
   executeSql: (input: SqlQueryInput) => ipcRenderer.invoke('nova:sql:execute', input),
   saveSql: (input: SavedSqlInput) => ipcRenderer.invoke('nova:sql:save', input),
   deleteSavedSql: (id: string) => ipcRenderer.invoke('nova:sql:delete', id),

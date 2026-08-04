@@ -269,6 +269,21 @@ export interface AskInput {
   model: string
 }
 
+export interface FunnelRecommendation {
+  id: string
+  name: string
+  description: string
+  steps: string[]
+  reason: string
+}
+
+export interface FunnelRecommendationInput {
+  dataSourceId: string
+  modelChannelId: string
+  model: string
+  focus?: string
+}
+
 export interface SqlQueryInput {
   queryId: string
   sql: string
@@ -345,6 +360,7 @@ export interface NovaApi {
   listModels: (input: ModelListInput) => Promise<string[]>
   completeInitialSetup: (input: InitialSetupInput) => Promise<{ dataSource: DataSource; modelChannel: ModelChannel }>
   ask: (input: AskInput) => Promise<QueryRun>
+  recommendFunnels: (input: FunnelRecommendationInput) => Promise<FunnelRecommendation[]>
   executeSql: (input: SqlQueryInput) => Promise<QueryRun>
   saveSql: (input: SavedSqlInput) => Promise<SavedSql>
   deleteSavedSql: (id: string) => Promise<void>

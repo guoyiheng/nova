@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
-import { describeConnection, describeProgressError, describeQueryResult, describeSchema, runAgent } from './agent.js'
+import { describeConnection, describeProgressError, describeQueryResult, describeSchema, recommendFunnels, runAgent } from './agent.js'
 import { buildDsn, DbhubSession, executeSql, loadSchemaSnapshot } from './dbhub.js'
 import { changesSchemaSql } from './dbhub-utils.js'
 import { Storage, uniqueImportedName } from './storage.js'
@@ -95,6 +95,13 @@ const askSchema = z.object({
   dataSourceId: z.string().uuid(),
   modelChannelId: z.string().uuid(),
   model: z.string().trim().min(1).max(200),
+})
+
+const funnelRecommendationSchema = z.object({
+  dataSourceId: z.string().uuid(),
+  modelChannelId: z.string().uuid(),
+  model: z.string().trim().min(1).max(200),
+  focus: z.string().trim().max(500).optional(),
 })
 
 const chartSpecSchema = z.object({
@@ -512,6 +519,42 @@ function registerIpc() {
         processLogs,
       })
     }
+  })
+
+  ipcMain.handle('nova:funnel:recommend', async (_event, payload) => {
+    const input = funnelRecommendationSchema.parse(payload)
+    const source = storage.getDataSource(input.dataSourceId)
+    const channel = storage.getModelChannel(input.modelChannelId)
+    if (!source) throw new Error('当前数据源不存在，请重新选择。')
+    if (!channel) throw new Error('模型提供商不存在，请重新选择。')
+
+    const cached = storage.getSchemaCacheRecord(source.id)
+    let schemaJson = cached?.schemaJson ?? ''
+    if (!cached || isSchemaCacheStale(cached.refreshedAt)) {
+      const session = new DbhubSession()
+      try {
+        await session.connect(buildDsn(source, storage.getDataSourceSecret(source.id)))
+        const resolved = await resolveSchemaSnapshot({
+          cachedSchema: cached?.schemaJson ?? null,
+          needsRefresh: Boolean(cached),
+          loadFresh: () => loadSchemaSnapshot(session),
+          saveFresh: (freshSchema) => storage.saveSchemaCache(source.id, freshSchema),
+        })
+        schemaJson = resolved.schemaJson
+      } finally {
+        await session.close()
+      }
+    }
+    if (!schemaJson) throw new Error('暂时无法读取数据结构，请先在设置中重建结构缓存。')
+
+    return recommendFunnels({
+      schemaJson,
+      sourceType: source.type,
+      apiKey: storage.getModelChannelApiKey(channel.id),
+      baseUrl: channel.baseUrl,
+      model: input.model,
+      focus: input.focus,
+    })
   })
 
   ipcMain.handle('nova:sql:execute', async (event, payload) => {
