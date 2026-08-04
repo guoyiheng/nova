@@ -60,20 +60,53 @@ describe('portable configuration', () => {
     const dashboard = sourceStorage.saveDashboard({
       name: '经营看板',
       description: '每日核心指标',
+      columns: 4,
       cards: [
-        { id: 'card-a', queryRunId: 'run-a', title: '销售额', view: 'metric', width: 'half' },
-        { id: 'card-b', queryRunId: 'run-b', title: '销售趋势', view: 'chart', width: 'full' },
+        { id: 'card-a', queryRunId: 'run-a', title: '销售额', view: 'metric', span: 1 },
+        { id: 'card-b', queryRunId: 'run-b', title: '销售趋势', view: 'chart', span: 2 },
       ],
     })
+    expect(dashboard.columns).toBe(4)
     expect(sourceStorage.bootstrap().dashboards[0]).toEqual(dashboard)
 
     const updated = sourceStorage.saveDashboard({
       id: dashboard.id,
       name: dashboard.name,
       description: dashboard.description,
+      columns: 5,
       cards: [...dashboard.cards].reverse(),
     })
+    expect(updated.columns).toBe(5)
     expect(updated.cards.map((card) => card.id)).toEqual(['card-b', 'card-a'])
+  })
+
+  it('migrates legacy dashboard widths to grid spans', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'nova-dashboard-grid-'))
+    const databasePath = join(directory, 'nova.sqlite')
+    const initialStorage = new Storage(databasePath)
+    initialStorage.close()
+
+    const database = new DatabaseSync(databasePath)
+    database.exec('ALTER TABLE dashboards DROP COLUMN columns')
+    database.prepare(`
+      INSERT INTO dashboards (id, name, description, cards_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('legacy-grid', '旧看板', '', JSON.stringify([
+      { id: 'card-a', queryRunId: 'run-a', title: '销售额', view: 'metric', width: 'half' },
+      { id: 'card-b', queryRunId: 'run-b', title: '销售趋势', view: 'chart', width: 'full' },
+    ]), '2026-01-01', '2026-01-01')
+    database.close()
+
+    const migratedStorage = new Storage(databasePath)
+    try {
+      expect(migratedStorage.getDashboard('legacy-grid')).toMatchObject({
+        columns: 3,
+        cards: [{ span: 1 }, { span: 2 }],
+      })
+    } finally {
+      migratedStorage.close()
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it('exports data sources, model channels and saved SQL with credentials', () => {
@@ -343,6 +376,7 @@ describe('portable configuration', () => {
         'id',
         'name',
         'description',
+        'columns',
         'cards_json',
         'created_at',
         'updated_at',

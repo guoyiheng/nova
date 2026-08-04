@@ -141,13 +141,14 @@ const dashboardCardSchema = z.object({
   queryRunId: z.string().uuid(),
   title: z.string().trim().min(1).max(160),
   view: z.enum(['chart', 'table', 'metric']),
-  width: z.enum(['half', 'full']),
+  span: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
 })
 
 const dashboardSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(80),
   description: z.string().max(240).optional(),
+  columns: z.number().int().min(2).max(6),
   cards: z.array(dashboardCardSchema).max(24),
 })
 

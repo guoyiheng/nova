@@ -102,6 +102,7 @@ type DashboardRow = {
   id: string
   name: string
   description: string
+  columns: number
   cards_json: string
   created_at: string
   updated_at: string
@@ -270,6 +271,7 @@ export class Storage {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
+        columns INTEGER NOT NULL DEFAULT 3,
         cards_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -303,11 +305,14 @@ export class Storage {
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
+          columns INTEGER NOT NULL DEFAULT 3,
           cards_json TEXT NOT NULL DEFAULT '[]',
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
       `)
+    } else if (!dashboardColumns.some((column) => column.name === 'columns')) {
+      this.db.exec('ALTER TABLE dashboards ADD COLUMN columns INTEGER NOT NULL DEFAULT 3')
     }
 
     const savedSqlColumns = this.db.prepare('PRAGMA table_info(saved_sql)').all() as unknown as Array<{ name: string; notnull: number }>
@@ -785,17 +790,19 @@ export class Storage {
     const id = existing?.id ?? randomUUID()
     const now = new Date().toISOString()
     this.db.prepare(`
-      INSERT INTO dashboards (id, name, description, cards_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO dashboards (id, name, description, columns, cards_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
+        columns = excluded.columns,
         cards_json = excluded.cards_json,
         updated_at = excluded.updated_at
     `).run(
       id,
       input.name.trim(),
       input.description?.trim() ?? '',
+      Math.min(6, Math.max(2, input.columns)),
       JSON.stringify(input.cards),
       existing?.createdAt ?? now,
       now,
@@ -1000,14 +1007,28 @@ export class Storage {
     let cards: DashboardCard[] = []
     try {
       const parsed = JSON.parse(row.cards_json) as unknown
-      if (Array.isArray(parsed)) cards = parsed.filter((card): card is DashboardCard => (
-        typeof card === 'object' && card !== null
-        && typeof (card as DashboardCard).id === 'string'
-        && typeof (card as DashboardCard).queryRunId === 'string'
-        && typeof (card as DashboardCard).title === 'string'
-        && ['chart', 'table', 'metric'].includes((card as DashboardCard).view)
-        && ['half', 'full'].includes((card as DashboardCard).width)
-      ))
+      if (Array.isArray(parsed)) cards = parsed.flatMap((value) => {
+        if (typeof value !== 'object' || value === null) return []
+        const card = value as Record<string, unknown>
+        if (
+          typeof card.id !== 'string'
+          || typeof card.queryRunId !== 'string'
+          || typeof card.title !== 'string'
+          || typeof card.view !== 'string'
+          || !['chart', 'table', 'metric'].includes(card.view)
+        ) return []
+        const span = [1, 2, 3, 4].includes(Number(card.span))
+          ? Number(card.span) as DashboardCard['span']
+          : card.width === 'half' ? 1 : card.width === 'full' ? 2 : null
+        if (!span) return []
+        return [{
+          id: card.id,
+          queryRunId: card.queryRunId,
+          title: card.title,
+          view: card.view as DashboardCard['view'],
+          span,
+        }]
+      })
     } catch {
       // Treat damaged optional dashboard metadata as an empty dashboard.
     }
@@ -1015,6 +1036,7 @@ export class Storage {
       id: row.id,
       name: row.name,
       description: row.description,
+      columns: Math.min(6, Math.max(2, row.columns || 3)),
       cards,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

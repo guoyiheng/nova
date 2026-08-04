@@ -2597,7 +2597,49 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 7px;
+}
+
+.dashboard-grid-control {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 2px 3px 2px 8px;
+  background: var(--surface-raised);
+  color: var(--ink-faint);
+  box-sizing: border-box;
+}
+
+.dashboard-grid-control>span {
+  margin: 0 3px 0 1px;
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.dashboard-grid-control button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.dashboard-grid-control button:hover {
+  background: var(--surface-card);
+  color: var(--ink);
+}
+
+.dashboard-grid-control button.active {
+  background: var(--ink);
+  color: var(--canvas);
 }
 
 .dashboard-scroll-area {
@@ -2608,7 +2650,7 @@ summary:focus-visible {
 }
 
 .dashboard-export-surface {
-  width: 1060px;
+  min-width: 1060px;
   min-height: 680px;
   margin: 0 auto;
   border: 1px solid var(--rule);
@@ -2647,12 +2689,13 @@ summary:focus-visible {
 
 .dashboard-canvas {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row dense;
   align-items: start;
   gap: 16px;
 }
 
 .dashboard-card {
+  container-type: inline-size;
   min-width: 0;
   min-height: 250px;
   overflow: hidden;
@@ -2664,10 +2707,6 @@ summary:focus-visible {
   transition: opacity 120ms, border-color 120ms;
 }
 
-.dashboard-card-full {
-  grid-column: 1 / -1;
-}
-
 .dashboard-card.dragging {
   opacity: 0.45;
   border-color: var(--accent);
@@ -2675,9 +2714,9 @@ summary:focus-visible {
 
 .dashboard-card>header {
   min-height: 58px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--rule-soft);
   padding: 10px 12px 10px 14px;
@@ -2725,6 +2764,26 @@ summary:focus-visible {
   gap: 2px;
 }
 
+.dashboard-view-control,
+.dashboard-span-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dashboard-span-control {
+  margin-left: 3px;
+  border-left: 1px solid var(--rule-soft);
+  padding-left: 6px;
+}
+
+.dashboard-span-control>span {
+  margin-right: 1px;
+  color: var(--ink-faint);
+  font-size: 0.625rem;
+  font-weight: 650;
+}
+
 .dashboard-card-actions button {
   min-width: 28px;
   height: 28px;
@@ -2735,6 +2794,16 @@ summary:focus-visible {
   color: var(--ink-faint);
   font-size: 0.6875rem;
   font-weight: 600;
+}
+
+.dashboard-card-actions .dashboard-view-control button {
+  min-width: 34px;
+  padding-inline: 5px;
+}
+
+.dashboard-card-actions .dashboard-span-control button {
+  min-width: 22px;
+  padding-inline: 0;
 }
 
 .dashboard-card-actions button:hover,
@@ -2751,8 +2820,16 @@ summary:focus-visible {
   min-height: 250px;
 }
 
-.dashboard-card-half .chart-graphic {
-  min-height: 220px;
+@container (max-width: 620px) {
+  .dashboard-card>header {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .dashboard-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 .result-metric {

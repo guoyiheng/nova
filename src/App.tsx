@@ -26,6 +26,7 @@ import {
   Import,
   Info,
   LayoutDashboard,
+  LayoutGrid,
   ListFilter,
   LoaderCircle,
   Maximize2,
@@ -1837,12 +1838,13 @@ function dashboardToInput(dashboard: Dashboard): DashboardInput {
     id: dashboard.id,
     name: dashboard.name,
     description: dashboard.description,
+    columns: dashboard.columns,
     cards: dashboard.cards,
   }
 }
 
 function emptyDashboard(): DashboardInput {
-  return { name: '经营看板', description: '', cards: [] }
+  return { name: '经营看板', description: '', columns: 3, cards: [] }
 }
 
 function htmlAttribute(value: string) {
@@ -1927,13 +1929,24 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         queryRunId: run.id,
         title: run.chart?.title ?? run.question,
         view,
-        width: view === 'metric' ? 'half' : 'full',
+        span: view === 'metric' ? 1 : 2,
       }],
     }))
   }
 
   const updateCard = (id: string, patch: Partial<DashboardCard>) => {
     setForm((current) => ({ ...current, cards: current.cards.map((card) => card.id === id ? { ...card, ...patch } : card) }))
+  }
+
+  const updateColumns = (columns: number) => {
+    setForm((current) => ({
+      ...current,
+      columns,
+      cards: current.cards.map((card) => ({
+        ...card,
+        span: Math.min(card.span, columns) as DashboardCard['span'],
+      })),
+    }))
   }
 
   const dropCard = (targetId: string) => {
@@ -1981,6 +1994,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
   const availableRuns = runs.filter((run) => run.status === 'success' && run.table?.rows.length && (
     !normalizedSearch || `${run.question} ${run.dataSourceName}`.toLocaleLowerCase().includes(normalizedSearch)
   ))
+  const dashboardSurfaceWidth = Math.max(1060, form.columns * 296 + 68)
 
   return (
     <div className="dashboard-page">
@@ -2006,6 +2020,22 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
             <input value={form.description ?? ''} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} maxLength={240} placeholder="添加一句说明" aria-label="看板说明" />
           </div>
           <div className="dashboard-actions">
+            <div className="dashboard-grid-control" role="group" aria-label="看板画布列数">
+              <LayoutGrid size={15} />
+              <span>画布</span>
+              {[2, 3, 4, 5, 6].map((columns) => (
+                <button
+                  key={columns}
+                  type="button"
+                  className={form.columns === columns ? 'active' : ''}
+                  onClick={() => updateColumns(columns)}
+                  title={`${columns} 列画布`}
+                  aria-label={`${columns} 列画布`}
+                >
+                  {columns}
+                </button>
+              ))}
+            </div>
             {selected && <button className="danger-icon-button" onClick={() => void removeDashboard()} aria-label="删除看板" title="删除看板"><Trash2 size={16} /></button>}
             <button className="secondary-button compact" onClick={() => setLibraryOpen((open) => !open)}><Plus size={15} />添加卡片</button>
             <button className="secondary-button compact" onClick={() => void exportDashboard('html')} disabled={Boolean(exporting) || !form.cards.length}>{exporting === 'html' ? <LoaderCircle size={15} className="spin" /> : <FileCode2 size={15} />}HTML</button>
@@ -2015,17 +2045,18 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
         </header>
 
         <div className="dashboard-scroll-area">
-          <div className="dashboard-export-surface" ref={exportRef}>
+          <div className="dashboard-export-surface" ref={exportRef} style={{ width: `${dashboardSurfaceWidth}px` }}>
             <div className="dashboard-export-heading">
               <span>NOVA DASHBOARD</span><h2>{form.name || '未命名看板'}</h2>{form.description && <p>{form.description}</p>}
             </div>
-            <div className="dashboard-canvas">
+            <div className="dashboard-canvas" style={{ gridTemplateColumns: `repeat(${form.columns}, minmax(280px, 1fr))` }}>
               {form.cards.map((card) => {
                 const run = runs.find((item) => item.id === card.queryRunId)
                 return (
                   <article
                     key={card.id}
-                    className={`dashboard-card dashboard-card-${card.width} ${draggingId === card.id ? 'dragging' : ''}`}
+                    className={`dashboard-card ${draggingId === card.id ? 'dragging' : ''}`}
+                    style={{ gridColumn: `span ${Math.min(card.span, form.columns)}` }}
                     draggable
                     onDragStart={() => setDraggingId(card.id)}
                     onDragEnd={() => setDraggingId(null)}
@@ -2035,8 +2066,24 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
                     <header>
                       <div className="dashboard-card-title"><GripVertical className="dashboard-export-exclude" size={16} /><div><strong>{card.title}</strong><span>{run?.dataSourceName ?? '查询记录不可用'}</span></div></div>
                       <div className="dashboard-card-actions dashboard-export-exclude">
-                        {(['metric', 'chart', 'table'] as const).map((view) => <button key={view} className={card.view === view ? 'active' : ''} onClick={() => updateCard(card.id, { view })}>{view === 'metric' ? '指标' : view === 'chart' ? '图表' : '表格'}</button>)}
-                        <button onClick={() => updateCard(card.id, { width: card.width === 'half' ? 'full' : 'half' })} title={card.width === 'half' ? '切换为通栏' : '切换为半宽'} aria-label={card.width === 'half' ? '切换为通栏' : '切换为半宽'}><Maximize2 size={14} /></button>
+                        <div className="dashboard-view-control" role="group" aria-label="卡片视图">
+                          {(['metric', 'chart', 'table'] as const).map((view) => <button key={view} className={card.view === view ? 'active' : ''} onClick={() => updateCard(card.id, { view })}>{view === 'metric' ? '指标' : view === 'chart' ? '图表' : '表格'}</button>)}
+                        </div>
+                        <div className="dashboard-span-control" role="group" aria-label="卡片占用列数">
+                          <span>占</span>
+                          {([1, 2, 3, 4] as const).slice(0, Math.min(4, form.columns)).map((span) => (
+                            <button
+                              key={span}
+                              type="button"
+                              className={card.span === span ? 'active' : ''}
+                              onClick={() => updateCard(card.id, { span })}
+                              title={`占 ${span} 列`}
+                              aria-label={`占 ${span} 列`}
+                            >
+                              {span}
+                            </button>
+                          ))}
+                        </div>
                         <button onClick={() => setForm((current) => ({ ...current, cards: current.cards.filter((item) => item.id !== card.id) }))} title="移除卡片" aria-label="移除卡片"><X size={14} /></button>
                       </div>
                     </header>
@@ -2044,7 +2091,7 @@ function DashboardsView({ dashboards, runs, onDataChange, showToast }: {
                   </article>
                 )
               })}
-              {!form.cards.length && <div className="dashboard-empty"><LayoutDashboard size={28} /><strong>从查询结果添加卡片</strong><span>图表、表格和单项指标都可以组合</span><button className="primary-button dashboard-export-exclude" onClick={() => setLibraryOpen(true)}><Plus size={16} />选择查询结果</button></div>}
+              {!form.cards.length && <div className="dashboard-empty" style={{ gridColumn: `1 / span ${Math.min(form.columns, 3)}` }}><LayoutDashboard size={28} /><strong>从查询结果添加卡片</strong><span>图表、表格和单项指标都可以组合</span><button className="primary-button dashboard-export-exclude" onClick={() => setLibraryOpen(true)}><Plus size={16} />选择查询结果</button></div>}
             </div>
             <footer className="dashboard-export-footer">© 2026 yiheng</footer>
           </div>

@@ -215,20 +215,21 @@ export interface ScheduledTaskInput {
 }
 
 export type DashboardCardView = 'chart' | 'table' | 'metric'
-export type DashboardCardWidth = 'half' | 'full'
+export type DashboardCardSpan = 1 | 2 | 3 | 4
 
 export interface DashboardCard {
   id: string
   queryRunId: string
   title: string
   view: DashboardCardView
-  width: DashboardCardWidth
+  span: DashboardCardSpan
 }
 
 export interface Dashboard {
   id: string
   name: string
   description: string
+  columns: number
   cards: DashboardCard[]
   createdAt: string
   updatedAt: string
@@ -238,6 +239,7 @@ export interface DashboardInput {
   id?: string
   name: string
   description?: string
+  columns: number
   cards: DashboardCard[]
 }
 
