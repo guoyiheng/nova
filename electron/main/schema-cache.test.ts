@@ -24,7 +24,12 @@ describe('schema cache inspection', () => {
       },
     })
 
-    expect(inspectSchemaCache('source-1', schemaJson, '2026-08-03T10:01:00.000Z')).toMatchObject({
+    expect(inspectSchemaCache(
+      'source-1',
+      schemaJson,
+      '2026-08-03T10:01:00.000Z',
+      Date.parse('2026-08-03T10:02:00.000Z'),
+    )).toMatchObject({
       state: 'partial',
       capturedAt: '2026-08-03T10:00:00.000Z',
       schemaCount: 1,
