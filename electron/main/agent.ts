@@ -2,7 +2,7 @@ import OpenAI from 'openai'
 import type { ChatCompletionFunctionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import type { AgentProgressEvent, AgentStage, ChartSpec, DataSource, FunnelRecommendation, QueryTable } from '../shared/types.js'
 import { DbhubSession, loadSchemaSnapshot, parseQueryTable, toolResultText } from './dbhub.js'
-import { buildDsn, changesSchemaSql } from './dbhub-utils.js'
+import { buildDsn, changesSchemaSql, isWriteSql } from './dbhub-utils.js'
 import { resolveSchemaSnapshot } from './schema-cache.js'
 import { buildSchemaContext } from './schema-context.js'
 
@@ -20,15 +20,15 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 9. 优先聚合数据，不查询与问题无关的明细或敏感字段。执行修改时应使用范围明确的条件。
 10. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
 11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的查询方向：说明基于 Schema 选定的查询对象、指标字段、筛选条件、分组或时间字段及必要关联；只描述方向和依据，不输出冗长推理。
-查询效率规则：优先使用结构上下文一次生成直接回答问题的最终 SQL，不要先查样例数据、总行数或其他非必要信息。只有缺少关键字段或分类值语义时才允许一次探查；探查后的下一次 SQL 必须是最终查询。整个任务最多调用两次 execute_sql，每轮最多调用一次；结果足以回答时立即输出最终 JSON，不要重复验证。
+查询效率规则：优先使用结构上下文生成一条能直接拿到全部目标字段的 SQL，可通过 JOIN、CTE 或条件聚合合并的查询不要拆分。只有目标来自互不依赖的数据对象、并行查询明显更快时，才在同一轮调用两次 execute_sql；两条必须都是互不依赖的只读 SQL。缺少关键字段或分类值语义时最多进行一次必要探查。整个任务最多调用两次 execute_sql；结果足以回答时立即输出最终 JSON，不要重复验证。
 漏斗规则：当问题包含“漏斗、转化路径、注册到支付、步骤转化、流失、留存路径”等意图时，自动从结构缓存识别事件表、用户标识、事件名称和时间字段，不要求用户提供表名或字段名；按用户步骤先后顺序计算每一步完成前序步骤的去重用户数，不能把各事件独立计数冒充漏斗。最终结果优先返回两列 stage（步骤名称）和 users（用户数），严格按步骤顺序排列，图表类型设为 funnel，并在结论中指出主要流失点、阶段转化率和可执行建议。对“推荐漏斗”类问题，先基于结构缓存选择最有业务价值的 2 到 8 个业务步骤，再直接完成分析；不要向用户展示内部表名、字段名或 SQL。
 12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
 13. answer 字段使用简洁的 GFM Markdown：第一句直接回答问题；只在关键指标、数值或结论上使用 **加粗**；存在多个并列发现时才使用无序列表；字段名或短代码可使用行内代码。
 14. answer 不使用任何标题、Markdown 表格、引用块、分隔线、代码块或 HTML；不要复述 SQL、查询过程或逐行复制数据表；不要使用“根据查询结果”“分析如下”等空泛开场。
-15. answer 中的数字、单位、时间范围和比较口径必须明确且来自最后一次查询结果。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
-16. 没有适合的图表时使用 none。图表字段必须来自最后一次查询结果。
+15. answer 中的数字、单位、时间范围和比较口径必须明确且来自本轮成功查询结果；并行查询时可以综合两条结果，但不得混淆各自口径。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
+16. 没有适合的图表时使用 none。图表字段必须来自最终用于展示的查询结果。
 17. 调用 execute_sql 时，参数必须是严格 JSON 对象：{"sql":"..."}。不要把 SQL 直接作为参数字符串，也不要使用 Markdown 代码块。
-18. 每轮最多调用一次 execute_sql。拿到足以回答问题的结果后立即总结，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
+18. 默认每轮调用一次 execute_sql；仅当两条只读 SQL 互不依赖且并行执行是获取目标字段的更短路径时，才允许同一轮调用两次。拿到足以回答问题的结果后立即总结，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
 
 合格的 answer 示例："最近 30 天订单总数为 **1,284 笔**。\\n\\n- 已完成：**1,201 笔**\\n- 已取消：**83 笔**"。`
 
@@ -54,6 +54,24 @@ export function queryStepAction(sql: string, executedSql: Iterable<string>, quer
   return 'execute' as const
 }
 
+export async function executeSqlTasks<T extends { sql: string }, R>(
+  tasks: T[],
+  execute: (task: T) => Promise<R>,
+) {
+  if (tasks.length > 1 && tasks.every((task) => !isWriteSql(task.sql))) {
+    return Promise.allSettled(tasks.map(execute))
+  }
+  const results: PromiseSettledResult<R>[] = []
+  for (const task of tasks) {
+    try {
+      results.push({ status: 'fulfilled', value: await execute(task) })
+    } catch (reason) {
+      results.push({ status: 'rejected', reason })
+    }
+  }
+  return results
+}
+
 export function expectsOverallAggregate(question: string) {
   return COUNT_INTENT_PATTERN.test(question) && !BREAKDOWN_INTENT_PATTERN.test(question)
 }
@@ -72,7 +90,7 @@ export function buildQueryPlanningGuidance(question: string) {
   if (/漏斗|转化路径|注册到支付|步骤转化|流失|留存路径/iu.test(question)) {
     return '先从高相关 Schema 中确定事件数据、用户标识、事件名称和时间字段，再按业务步骤生成漏斗 SQL。'
   }
-  return '先阅读按相关性排序的 Schema 详情，确定主表或视图、必要关联、指标字段、筛选字段、分组维度和时间字段，再生成直接回答问题的 SQL。首次调用 execute_sql 前，用一至两句话说明这一查询方向。'
+  return '先阅读按相关性排序的 Schema 详情，确定主表或视图、必要关联、指标字段、筛选字段、分组维度和时间字段，再选择最短查询路径。能用 JOIN、CTE 或条件聚合一次拿到目标字段时只生成一条 SQL；仅当两个结果互不依赖且并行更快时，才同时生成两条只读 SQL。首次调用 execute_sql 前，用一至两句话说明这一查询方向。'
 }
 
 export function overallAggregateNeedsCorrection(question: string, sql: string, table: QueryTable | null) {
@@ -535,18 +553,18 @@ export async function runAgent(options: {
         queryResult: lastTable,
       }), lastTable ?? undefined)
 
-      let handledFunctionCall = false
-      for (const toolCall of message.tool_calls) {
-        if (toolCall.type !== 'function') continue
-        if (handledFunctionCall) {
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: '为缩短查询过程，本轮只执行第一个 SQL。仅当现有结果不足以回答原问题时，下一轮再调用这条查询。',
-          })
-          continue
-        }
-        handledFunctionCall = true
+      type SqlTask = {
+        toolCall: Extract<(typeof message.tool_calls)[number], { type: 'function' }>
+        args: Record<string, unknown>
+        sql: string
+        queryStep: ReturnType<typeof progress>
+      }
+      const pendingTasks: SqlTask[] = []
+      const scheduledSql = new Set<string>()
+      const toolResponses = new Map<string, string>()
+      const remainingBudget = Math.max(0, MAX_AGENT_SQL_QUERIES - queryCount)
+
+      for (const toolCall of functionToolCalls) {
         let args: Record<string, unknown>
         try {
           args = parseToolArguments(toolCall.function.name, toolCall.function.arguments)
@@ -559,84 +577,102 @@ export async function runAgent(options: {
             throw new Error(`${detail} 模型连续生成无效参数，已停止重试。`)
           }
           argumentStep.success(`${detail} 已要求模型按严格 JSON 修正一次`)
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: '工具参数格式无效。请重新调用 execute_sql，并只传入严格 JSON 对象：{"sql":"..."}。',
-          })
+          toolResponses.set(toolCall.id, '工具参数格式无效。请重新调用 execute_sql，并只传入严格 JSON 对象：{"sql":"..."}。')
           continue
         }
+
         const sql = toolCall.function.name === 'execute_sql' ? String(args.sql ?? '') : ''
-        const action = queryStepAction(sql, executedQueries.keys(), queryCount)
+        const normalizedSql = normalizeSql(sql)
+        const action = queryStepAction(sql, executedQueries.keys(), queryCount + pendingTasks.length)
         if (action === 'reuse') {
-          const cached = executedQueries.get(normalizeSql(sql))!
+          const cached = executedQueries.get(normalizedSql)!
           lastSql = cached.sql
           lastTable = cached.table
-          messages.push({ role: 'tool', tool_call_id: toolCall.id, content: cached.text })
-          messages.push({
-            role: 'user',
-            content: '这条 SQL 已执行过，结果已复用。请停止重复查询，直接基于该结果返回最终 JSON 结论。',
-          })
+          toolResponses.set(toolCall.id, cached.text)
           forceFinal = true
           continue
         }
-        if (action === 'finalize') {
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: '查询次数已足够，本次不再执行新的 SQL。请使用已有结果完成回答。',
-          })
-          forceFinal = true
+        if (scheduledSql.has(normalizedSql)) {
+          toolResponses.set(toolCall.id, '相同 SQL 已在本轮执行，无需重复查询。请使用本轮另一条工具结果。')
           continue
         }
-        const queryStep = progress('querying', '执行 SQL', sql ? `准备执行：\n${sql}` : `准备调用：${toolCall.function.name}`)
-        let result: Awaited<ReturnType<DbhubSession['callTool']>>
-        queryCount += 1
-        try {
-          result = await session.callTool(toolCall.function.name, args)
-        } catch (error) {
-          queryStep.error(error instanceof Error ? error.message : '查询执行失败')
-          throw error
+        if (action === 'finalize' || pendingTasks.length >= remainingBudget) {
+          toolResponses.set(toolCall.id, '当前查询已覆盖最短路径，本次不再执行额外 SQL。请使用已有结果完成回答。')
+          forceFinal = action === 'finalize'
+          continue
         }
+        scheduledSql.add(normalizedSql)
+        pendingTasks.push({
+          toolCall,
+          args,
+          sql,
+          queryStep: progress('querying', '执行 SQL', sql ? `准备执行：\n${sql}` : `准备调用：${toolCall.function.name}`),
+        })
+      }
+
+      queryCount += pendingTasks.length
+      const taskResults = await executeSqlTasks(pendingTasks, async (task) => ({
+        task,
+        result: await session.callTool(task.toolCall.function.name, task.args),
+      }))
+
+      for (let index = 0; index < taskResults.length; index += 1) {
+        const settled = taskResults[index]!
+        const task = pendingTasks[index]!
+        if (settled.status === 'rejected') {
+          const detail = settled.reason instanceof Error ? settled.reason.message : '查询执行失败'
+          task.queryStep.error(detail)
+          throw settled.reason
+        }
+
+        const { result } = settled.value
         const fullText = toolResultText(result)
         const parsedPayload = parseJsonObject(fullText)
         const queryFailed = result.isError || parsedPayload?.success === false
-        if (toolCall.function.name === 'execute_sql') {
-          lastSql = String(args.sql ?? '')
-          if (changesSchemaSql(lastSql)) await onSchemaChanged()
-          try {
-            lastTable = parseQueryTable(result, lastSql)
-          } catch {
-            lastTable = null
-          }
+        let queryTable: QueryTable | null = null
+        try {
+          queryTable = parseQueryTable(result, task.sql)
+        } catch {
+          queryTable = null
         }
+        if (queryTable) lastTable = queryTable
         const modelText = fullText.length > MAX_MODEL_RESULT_CHARS
           ? `${fullText.slice(0, MAX_MODEL_RESULT_CHARS)}\n[结果已截断]`
           : fullText
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: modelText,
-        })
+        toolResponses.set(task.toolCall.id, modelText)
+
         if (queryFailed) {
           queryFailureCount += 1
           lastQueryError = fullText.slice(0, 1_000) || '数据库拒绝执行 SQL。'
-          queryStep.error(lastQueryError)
-          if (queryFailureCount > 1 || queryCount >= MAX_AGENT_SQL_QUERIES) {
-            throw new Error(`SQL 连续执行失败，已停止重试：${lastQueryError}`)
-          }
-          messages.push({
-            role: 'user',
-            content: '上一条 SQL 执行失败。请根据数据库错误和已有结构修正一次；不要重复原 SQL，也不要进行额外探索。',
-          })
+          task.queryStep.error(lastQueryError)
           continue
         }
+        lastSql = task.sql
+        if (changesSchemaSql(task.sql)) await onSchemaChanged()
         lastQueryError = ''
-        queryStep.success([
-          `SQL：\n${sql}`,
-          lastTable ? describeQueryResult(lastTable) : '执行结果：数据库未返回可展示的表格数据',
-        ].join('\n\n'), lastTable ?? undefined)
-        executedQueries.set(normalizeSql(sql), { sql, text: modelText, table: lastTable })
+        task.queryStep.success([
+          `SQL：\n${task.sql}`,
+          queryTable ? describeQueryResult(queryTable) : '执行结果：数据库未返回可展示的表格数据',
+        ].join('\n\n'), queryTable ?? undefined)
+        executedQueries.set(normalizeSql(task.sql), { sql: task.sql, text: modelText, table: queryTable })
+      }
+
+      for (const toolCall of functionToolCalls) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: toolResponses.get(toolCall.id) ?? '本次未执行该查询，请使用已有结果完成回答。',
+        })
+      }
+
+      if (queryFailureCount && !lastTable) {
+        if (queryFailureCount > 1 || queryCount >= MAX_AGENT_SQL_QUERIES) {
+          throw new Error(`SQL 连续执行失败，已停止重试：${lastQueryError}`)
+        }
+        messages.push({
+          role: 'user',
+          content: '上一条 SQL 执行失败。请根据数据库错误和已有结构修正一次；不要重复原 SQL，也不要进行额外探索。',
+        })
       }
     }
     throw new Error('模型未能基于查询结果生成最终结论，请重试。')

@@ -11,6 +11,7 @@ import {
   describeQueryResult,
   describeSchema,
   expectsOverallAggregate,
+  executeSqlTasks,
   formatAgentError,
   MAX_AGENT_MODEL_ROUNDS,
   MAX_AGENT_SQL_QUERIES,
@@ -43,6 +44,8 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('结果足以回答时立即输出最终 JSON')
     expect(SYSTEM_PROMPT).toContain('常规查询必须先根据高相关 Schema 确定大致查询方向')
     expect(SYSTEM_PROMPT).toContain('选定主表或视图、必要关联')
+    expect(SYSTEM_PROMPT).toContain('并行查询明显更快时')
+    expect(SYSTEM_PROMPT).toContain('两条必须都是互不依赖的只读 SQL')
   })
 })
 
@@ -52,10 +55,59 @@ describe('schema-first query planning', () => {
     expect(guidance).toContain('先阅读按相关性排序的 Schema 详情')
     expect(guidance).toContain('主表或视图、必要关联')
     expect(guidance).toContain('指标字段、筛选字段、分组维度和时间字段')
+    expect(guidance).toContain('JOIN、CTE 或条件聚合一次拿到目标字段')
+    expect(guidance).toContain('两个结果互不依赖且并行更快')
   })
 
   it('keeps funnel planning focused on event schema', () => {
     expect(buildQueryPlanningGuidance('分析注册到支付漏斗')).toContain('事件数据、用户标识、事件名称和时间字段')
+  })
+})
+
+describe('SQL task scheduling', () => {
+  it('starts independent read queries concurrently', async () => {
+    const started: string[] = []
+    let releaseFirst: (() => void) | undefined
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const execution = executeSqlTasks([
+      { sql: 'SELECT total FROM orders' },
+      { sql: 'SELECT total FROM refunds' },
+    ], async (task) => {
+      started.push(task.sql)
+      if (task.sql.includes('orders')) await firstBlocked
+      return task.sql
+    })
+
+    await Promise.resolve()
+    expect(started).toEqual(['SELECT total FROM orders', 'SELECT total FROM refunds'])
+    releaseFirst?.()
+    await expect(execution).resolves.toEqual([
+      { status: 'fulfilled', value: 'SELECT total FROM orders' },
+      { status: 'fulfilled', value: 'SELECT total FROM refunds' },
+    ])
+  })
+
+  it('runs batches containing writes sequentially', async () => {
+    const started: string[] = []
+    let releaseFirst: (() => void) | undefined
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const execution = executeSqlTasks([
+      { sql: "UPDATE jobs SET status = 'done' WHERE id = 1" },
+      { sql: 'SELECT status FROM jobs WHERE id = 1' },
+    ], async (task) => {
+      started.push(task.sql)
+      if (task.sql.startsWith('UPDATE')) await firstBlocked
+      return task.sql
+    })
+
+    await Promise.resolve()
+    expect(started).toEqual(["UPDATE jobs SET status = 'done' WHERE id = 1"])
+    releaseFirst?.()
+    await execution
+    expect(started).toEqual([
+      "UPDATE jobs SET status = 'done' WHERE id = 1",
+      'SELECT status FROM jobs WHERE id = 1',
+    ])
   })
 })
 
