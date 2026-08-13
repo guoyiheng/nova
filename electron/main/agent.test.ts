@@ -11,10 +11,14 @@ import {
   describeSchema,
   expectsOverallAggregate,
   formatAgentError,
+  MAX_AGENT_MODEL_ROUNDS,
+  MAX_AGENT_SQL_QUERIES,
   overallAggregateNeedsCorrection,
   parseFinal,
   parseFunnelRecommendations,
   parseToolArguments,
+  queryStepAction,
+  shouldForceFinalAnswer,
   SYSTEM_PROMPT,
 } from './agent.js'
 
@@ -34,6 +38,28 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('给出可展示的步骤说明')
     expect(SYSTEM_PROMPT).toContain('自动从结构缓存识别事件表')
     expect(SYSTEM_PROMPT).toContain('不能把各事件独立计数冒充漏斗')
+    expect(SYSTEM_PROMPT).toContain('整个任务最多调用两次 execute_sql')
+    expect(SYSTEM_PROMPT).toContain('结果足以回答时立即输出最终 JSON')
+  })
+})
+
+describe('query budget', () => {
+  it('keeps the common path to one query and one answer round', () => {
+    expect(shouldForceFinalAnswer(1, 0)).toBe(false)
+    expect(shouldForceFinalAnswer(2, 1)).toBe(false)
+  })
+
+  it('forces an answer after two queries or at the final model round', () => {
+    expect(MAX_AGENT_SQL_QUERIES).toBe(2)
+    expect(MAX_AGENT_MODEL_ROUNDS).toBe(4)
+    expect(shouldForceFinalAnswer(3, MAX_AGENT_SQL_QUERIES)).toBe(true)
+    expect(shouldForceFinalAnswer(MAX_AGENT_MODEL_ROUNDS, 0)).toBe(true)
+  })
+
+  it('reuses duplicate SQL and blocks queries beyond the budget', () => {
+    expect(queryStepAction(' SELECT 1; ', ['SELECT 1'], 1)).toBe('reuse')
+    expect(queryStepAction('SELECT 2', ['SELECT 1'], MAX_AGENT_SQL_QUERIES)).toBe('finalize')
+    expect(queryStepAction('SELECT 2', ['SELECT 1'], 1)).toBe('execute')
   })
 })
 

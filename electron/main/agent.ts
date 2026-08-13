@@ -20,6 +20,7 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 9. 优先聚合数据，不查询与问题无关的明细或敏感字段。执行修改时应使用范围明确的条件。
 10. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
 11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的步骤说明：说明本轮要查询或验证的对象、指标、筛选条件和必要关联；只描述行动计划和依据，不输出冗长推理。
+查询效率规则：优先使用结构上下文一次生成直接回答问题的最终 SQL，不要先查样例数据、总行数或其他非必要信息。只有缺少关键字段或分类值语义时才允许一次探查；探查后的下一次 SQL 必须是最终查询。整个任务最多调用两次 execute_sql，每轮最多调用一次；结果足以回答时立即输出最终 JSON，不要重复验证。
 漏斗规则：当问题包含“漏斗、转化路径、注册到支付、步骤转化、流失、留存路径”等意图时，自动从结构缓存识别事件表、用户标识、事件名称和时间字段，不要求用户提供表名或字段名；按用户步骤先后顺序计算每一步完成前序步骤的去重用户数，不能把各事件独立计数冒充漏斗。最终结果优先返回两列 stage（步骤名称）和 users（用户数），严格按步骤顺序排列，图表类型设为 funnel，并在结论中指出主要流失点、阶段转化率和可执行建议。对“推荐漏斗”类问题，先基于结构缓存选择最有业务价值的 2 到 8 个业务步骤，再直接完成分析；不要向用户展示内部表名、字段名或 SQL。
 12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
 13. answer 字段使用简洁的 GFM Markdown：第一句直接回答问题；只在关键指标、数值或结论上使用 **加粗**；存在多个并列发现时才使用无序列表；字段名或短代码可使用行内代码。
@@ -27,11 +28,31 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 15. answer 中的数字、单位、时间范围和比较口径必须明确且来自最后一次查询结果。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
 16. 没有适合的图表时使用 none。图表字段必须来自最后一次查询结果。
 17. 调用 execute_sql 时，参数必须是严格 JSON 对象：{"sql":"..."}。不要把 SQL 直接作为参数字符串，也不要使用 Markdown 代码块。
+18. 每轮最多调用一次 execute_sql。拿到足以回答问题的结果后立即总结，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
 
 合格的 answer 示例："最近 30 天订单总数为 **1,284 笔**。\\n\\n- 已完成：**1,201 笔**\\n- 已取消：**83 笔**"。`
 
+export const MAX_AGENT_MODEL_ROUNDS = 4
+export const MAX_AGENT_SQL_QUERIES = 2
+export const MAX_MODEL_RESULT_CHARS = 24_000
+
+export function shouldForceFinalAnswer(round: number, executedQueryCount: number) {
+  return round >= MAX_AGENT_MODEL_ROUNDS || executedQueryCount >= MAX_AGENT_SQL_QUERIES
+}
+
 const COUNT_INTENT_PATTERN = /次数|多少|数量|个数|记录数|总数|总量|调用量|使用量|用量|一共|共计|count/iu
 const BREAKDOWN_INTENT_PATTERN = /分别|各(?:个|类|种|项)?|每(?:天|日|周|月|年|小时|分钟|个|类|种|项)|分布|占比|排行|排名|趋势|对比|比较|明细|列表|按.{0,12}(?:次数|数量|用量|统计|汇总|分组|展示|查看|趋势)|按(?:天|日|周|月|年|小时|分钟|模型|类型|渠道|状态|用户|地区)|不同.{0,16}(?:次数|数量|总数|多少|用量)/u
+
+function normalizeSql(sql: string) {
+  return sql.trim().replace(/;\s*$/, '').replace(/\s+/g, ' ')
+}
+
+export function queryStepAction(sql: string, executedSql: Iterable<string>, queryCount: number) {
+  const normalized = normalizeSql(sql)
+  if (Array.from(executedSql).some((item) => item === normalized)) return 'reuse' as const
+  if (queryCount >= MAX_AGENT_SQL_QUERIES) return 'finalize' as const
+  return 'execute' as const
+}
 
 export function expectsOverallAggregate(question: string) {
   return COUNT_INTENT_PATTERN.test(question) && !BREAKDOWN_INTENT_PATTERN.test(question)
@@ -422,8 +443,24 @@ export async function runAgent(options: {
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: `当前数据库类型：${source.type}\n数据库结构缓存：\n${schemaContext}\n\n意图约束：${buildIntentGuidance(question)}\n\n问题：${question}` },
     ]
+    const executedQueries = new Map<string, { sql: string; text: string; table: QueryTable | null }>()
+    let queryCount = 0
+    let invalidArgumentCount = 0
+    let queryFailureCount = 0
+    let lastQueryError = ''
+    let forceFinal = false
 
-    for (let step = 0; step < 6; step += 1) {
+    for (let step = 0; step < MAX_AGENT_MODEL_ROUNDS; step += 1) {
+      if (!forceFinal && shouldForceFinalAnswer(step + 1, queryCount)) {
+        if (queryCount >= MAX_AGENT_SQL_QUERIES) {
+          if (!lastTable && lastQueryError) throw new Error(`SQL 查询失败：${lastQueryError}`)
+          messages.push({
+            role: 'user',
+            content: '现有查询结果已经足够。请停止调用工具，直接基于最后一次查询结果给出最终 JSON 结论；不得编造结果中没有的数据。',
+          })
+        }
+        forceFinal = true
+      }
       const stage = step === 0 ? 'planning' : 'answering'
       const modelStep = progress(
         stage,
@@ -439,8 +476,7 @@ export async function runAgent(options: {
         completion = await client.chat.completions.create({
           model,
           messages,
-          tools,
-          tool_choice: 'auto',
+          ...(forceFinal ? {} : { tools, tool_choice: 'auto' as const }),
         })
       } catch (error) {
         const message = formatAgentError(error)
@@ -465,7 +501,7 @@ export async function runAgent(options: {
           queryResult: lastTable,
           finalAnswer: final.answer,
         }), lastTable ?? undefined)
-        if (overallAggregateNeedsCorrection(question, lastSql, lastTable)) {
+        if (!forceFinal && overallAggregateNeedsCorrection(question, lastSql, lastTable)) {
           const intentStep = progress('planning', '校验统计口径', '确认查询结果是否直接回答原问题')
           intentStep.success([
             '校验结果：当前结果没有直接返回用户要求的单一总计',
@@ -490,15 +526,30 @@ export async function runAgent(options: {
         queryResult: lastTable,
       }), lastTable ?? undefined)
 
+      let handledFunctionCall = false
       for (const toolCall of message.tool_calls) {
         if (toolCall.type !== 'function') continue
+        if (handledFunctionCall) {
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: '为缩短查询过程，本轮只执行第一个 SQL。仅当现有结果不足以回答原问题时，下一轮再调用这条查询。',
+          })
+          continue
+        }
+        handledFunctionCall = true
         let args: Record<string, unknown>
         try {
           args = parseToolArguments(toolCall.function.name, toolCall.function.arguments)
         } catch (error) {
+          invalidArgumentCount += 1
           const detail = error instanceof Error ? error.message : `模型生成了无效的 ${toolCall.function.name} 参数。`
           const argumentStep = progress('planning', '校验查询参数', '检查模型生成的工具参数')
-          argumentStep.success(`${detail} 已要求模型按严格 JSON 重新生成`)
+          if (invalidArgumentCount > 1) {
+            argumentStep.error(detail)
+            throw new Error(`${detail} 模型连续生成无效参数，已停止重试。`)
+          }
+          argumentStep.success(`${detail} 已要求模型按严格 JSON 修正一次`)
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
@@ -507,8 +558,31 @@ export async function runAgent(options: {
           continue
         }
         const sql = toolCall.function.name === 'execute_sql' ? String(args.sql ?? '') : ''
+        const action = queryStepAction(sql, executedQueries.keys(), queryCount)
+        if (action === 'reuse') {
+          const cached = executedQueries.get(normalizeSql(sql))!
+          lastSql = cached.sql
+          lastTable = cached.table
+          messages.push({ role: 'tool', tool_call_id: toolCall.id, content: cached.text })
+          messages.push({
+            role: 'user',
+            content: '这条 SQL 已执行过，结果已复用。请停止重复查询，直接基于该结果返回最终 JSON 结论。',
+          })
+          forceFinal = true
+          continue
+        }
+        if (action === 'finalize') {
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: '查询次数已足够，本次不再执行新的 SQL。请使用已有结果完成回答。',
+          })
+          forceFinal = true
+          continue
+        }
         const queryStep = progress('querying', '执行 SQL', sql ? `准备执行：\n${sql}` : `准备调用：${toolCall.function.name}`)
         let result: Awaited<ReturnType<DbhubSession['callTool']>>
+        queryCount += 1
         try {
           result = await session.callTool(toolCall.function.name, args)
         } catch (error) {
@@ -516,6 +590,8 @@ export async function runAgent(options: {
           throw error
         }
         const fullText = toolResultText(result)
+        const parsedPayload = parseJsonObject(fullText)
+        const queryFailed = result.isError || parsedPayload?.success === false
         if (toolCall.function.name === 'execute_sql') {
           lastSql = String(args.sql ?? '')
           if (changesSchemaSql(lastSql)) await onSchemaChanged()
@@ -525,19 +601,36 @@ export async function runAgent(options: {
             lastTable = null
           }
         }
-        queryStep.success([
-          `SQL：\n${sql}`,
-          lastTable ? describeQueryResult(lastTable) : '执行结果：数据库未返回可展示的表格数据',
-        ].join('\n\n'), lastTable ?? undefined)
-        const modelText = fullText.length > 60_000 ? `${fullText.slice(0, 60_000)}\n[结果已截断]` : fullText
+        const modelText = fullText.length > MAX_MODEL_RESULT_CHARS
+          ? `${fullText.slice(0, MAX_MODEL_RESULT_CHARS)}\n[结果已截断]`
+          : fullText
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
           content: modelText,
         })
+        if (queryFailed) {
+          queryFailureCount += 1
+          lastQueryError = fullText.slice(0, 1_000) || '数据库拒绝执行 SQL。'
+          queryStep.error(lastQueryError)
+          if (queryFailureCount > 1 || queryCount >= MAX_AGENT_SQL_QUERIES) {
+            throw new Error(`SQL 连续执行失败，已停止重试：${lastQueryError}`)
+          }
+          messages.push({
+            role: 'user',
+            content: '上一条 SQL 执行失败。请根据数据库错误和已有结构修正一次；不要重复原 SQL，也不要进行额外探索。',
+          })
+          continue
+        }
+        lastQueryError = ''
+        queryStep.success([
+          `SQL：\n${sql}`,
+          lastTable ? describeQueryResult(lastTable) : '执行结果：数据库未返回可展示的表格数据',
+        ].join('\n\n'), lastTable ?? undefined)
+        executedQueries.set(normalizeSql(sql), { sql, text: modelText, table: lastTable })
       }
     }
-    throw new Error('Agent 超过了最大查询步骤，请缩小问题范围后重试。')
+    throw new Error('模型未能基于查询结果生成最终结论，请重试。')
   } finally {
     await session.close()
   }
