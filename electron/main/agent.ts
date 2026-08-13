@@ -20,24 +20,23 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 9. 优先聚合数据，不查询与问题无关的明细或敏感字段。执行修改时应使用范围明确的条件。
 10. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
 11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的查询方向：说明基于 Schema 选定的查询对象、指标字段、筛选条件、分组或时间字段及必要关联；只描述方向和依据，不输出冗长推理。
-查询效率规则：优先使用结构上下文生成一条能直接拿到全部目标字段的 SQL，可通过 JOIN、CTE 或条件聚合合并的查询不要拆分。只有目标来自互不依赖的数据对象、并行查询明显更快时，才在同一轮调用两次 execute_sql；两条必须都是互不依赖的只读 SQL。缺少关键字段或分类值语义时最多进行一次必要探查。整个任务最多调用两次 execute_sql；结果足以回答时立即输出最终 JSON，不要重复验证。
+查询效率规则：优先使用结构上下文生成一条能直接拿到全部目标字段的 SQL，可通过 JOIN、CTE 或条件聚合合并的查询不要拆分。只有目标来自互不依赖的数据对象、并行查询明显更快时，才在同一轮调用多次 execute_sql；这些 SQL 必须互不依赖且只读。SQL 总数不设固定上限，但每条查询都必须直接用于获取目标字段、确认必要口径或修正数据库错误；结果足以回答时立即输出最终 JSON，不要重复验证或做无关探索。
 漏斗规则：当问题包含“漏斗、转化路径、注册到支付、步骤转化、流失、留存路径”等意图时，自动从结构缓存识别事件表、用户标识、事件名称和时间字段，不要求用户提供表名或字段名；按用户步骤先后顺序计算每一步完成前序步骤的去重用户数，不能把各事件独立计数冒充漏斗。最终结果优先返回两列 stage（步骤名称）和 users（用户数），严格按步骤顺序排列，图表类型设为 funnel，并在结论中指出主要流失点、阶段转化率和可执行建议。对“推荐漏斗”类问题，先基于结构缓存选择最有业务价值的 2 到 8 个业务步骤，再直接完成分析；不要向用户展示内部表名、字段名或 SQL。
 12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
 13. answer 字段使用简洁的 GFM Markdown：第一句直接回答问题；只在关键指标、数值或结论上使用 **加粗**；存在多个并列发现时才使用无序列表；字段名或短代码可使用行内代码。
 14. answer 不使用任何标题、Markdown 表格、引用块、分隔线、代码块或 HTML；不要复述 SQL、查询过程或逐行复制数据表；不要使用“根据查询结果”“分析如下”等空泛开场。
-15. answer 中的数字、单位、时间范围和比较口径必须明确且来自本轮成功查询结果；并行查询时可以综合两条结果，但不得混淆各自口径。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
+15. answer 中的数字、单位、时间范围和比较口径必须明确且来自本轮成功查询结果；并行查询时可以综合多条结果，但不得混淆各自口径。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
 16. 没有适合的图表时使用 none。图表字段必须来自最终用于展示的查询结果。
 17. 调用 execute_sql 时，参数必须是严格 JSON 对象：{"sql":"..."}。不要把 SQL 直接作为参数字符串，也不要使用 Markdown 代码块。
-18. 默认每轮调用一次 execute_sql；仅当两条只读 SQL 互不依赖且并行执行是获取目标字段的更短路径时，才允许同一轮调用两次。拿到足以回答问题的结果后立即总结，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
+18. 默认优先使用最少的 SQL；当多条只读 SQL 互不依赖且并行执行是获取目标字段的更短路径时，允许同一轮调用多次。拿到足以回答问题的结果后立即总结，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
 
 合格的 answer 示例："最近 30 天订单总数为 **1,284 笔**。\\n\\n- 已完成：**1,201 笔**\\n- 已取消：**83 笔**"。`
 
 export const MAX_AGENT_MODEL_ROUNDS = 4
-export const MAX_AGENT_SQL_QUERIES = 2
 export const MAX_MODEL_RESULT_CHARS = 24_000
 
-export function shouldForceFinalAnswer(round: number, executedQueryCount: number) {
-  return round >= MAX_AGENT_MODEL_ROUNDS || executedQueryCount >= MAX_AGENT_SQL_QUERIES
+export function shouldForceFinalAnswer(round: number) {
+  return round >= MAX_AGENT_MODEL_ROUNDS
 }
 
 const COUNT_INTENT_PATTERN = /次数|多少|数量|个数|记录数|总数|总量|调用量|使用量|用量|一共|共计|count/iu
@@ -47,10 +46,9 @@ function normalizeSql(sql: string) {
   return sql.trim().replace(/;\s*$/, '').replace(/\s+/g, ' ')
 }
 
-export function queryStepAction(sql: string, executedSql: Iterable<string>, queryCount: number) {
+export function queryStepAction(sql: string, executedSql: Iterable<string>) {
   const normalized = normalizeSql(sql)
   if (Array.from(executedSql).some((item) => item === normalized)) return 'reuse' as const
-  if (queryCount >= MAX_AGENT_SQL_QUERIES) return 'finalize' as const
   return 'execute' as const
 }
 
@@ -90,7 +88,7 @@ export function buildQueryPlanningGuidance(question: string) {
   if (/漏斗|转化路径|注册到支付|步骤转化|流失|留存路径/iu.test(question)) {
     return '先从高相关 Schema 中确定事件数据、用户标识、事件名称和时间字段，再按业务步骤生成漏斗 SQL。'
   }
-  return '先阅读按相关性排序的 Schema 详情，确定主表或视图、必要关联、指标字段、筛选字段、分组维度和时间字段，再选择最短查询路径。能用 JOIN、CTE 或条件聚合一次拿到目标字段时只生成一条 SQL；仅当两个结果互不依赖且并行更快时，才同时生成两条只读 SQL。首次调用 execute_sql 前，用一至两句话说明这一查询方向。'
+  return '先阅读按相关性排序的 Schema 详情，确定主表或视图、必要关联、指标字段、筛选字段、分组维度和时间字段，再选择最短查询路径。能用 JOIN、CTE 或条件聚合一次拿到目标字段时只生成一条 SQL；仅当多个结果互不依赖且并行更快时，才同时生成多条只读 SQL，数量按实际需要决定。首次调用 execute_sql 前，用一至两句话说明这一查询方向。'
 }
 
 export function overallAggregateNeedsCorrection(question: string, sql: string, table: QueryTable | null) {
@@ -469,21 +467,13 @@ export async function runAgent(options: {
       { role: 'user', content: `当前数据库类型：${source.type}\n数据库结构缓存（relations 已按问题相关性排序）：\n${schemaContext}\n\n查询规划要求：${buildQueryPlanningGuidance(question)}\n意图约束：${buildIntentGuidance(question)}\n\n问题：${question}` },
     ]
     const executedQueries = new Map<string, { sql: string; text: string; table: QueryTable | null }>()
-    let queryCount = 0
     let invalidArgumentCount = 0
     let queryFailureCount = 0
     let lastQueryError = ''
     let forceFinal = false
 
     for (let step = 0; step < MAX_AGENT_MODEL_ROUNDS; step += 1) {
-      if (!forceFinal && shouldForceFinalAnswer(step + 1, queryCount)) {
-        if (queryCount >= MAX_AGENT_SQL_QUERIES) {
-          if (!lastTable && lastQueryError) throw new Error(`SQL 查询失败：${lastQueryError}`)
-          messages.push({
-            role: 'user',
-            content: '现有查询结果已经足够。请停止调用工具，直接基于最后一次查询结果给出最终 JSON 结论；不得编造结果中没有的数据。',
-          })
-        }
+      if (!forceFinal && shouldForceFinalAnswer(step + 1)) {
         forceFinal = true
       }
       const stage = step === 0 ? 'planning' : 'answering'
@@ -562,7 +552,6 @@ export async function runAgent(options: {
       const pendingTasks: SqlTask[] = []
       const scheduledSql = new Set<string>()
       const toolResponses = new Map<string, string>()
-      const remainingBudget = Math.max(0, MAX_AGENT_SQL_QUERIES - queryCount)
 
       for (const toolCall of functionToolCalls) {
         let args: Record<string, unknown>
@@ -583,7 +572,7 @@ export async function runAgent(options: {
 
         const sql = toolCall.function.name === 'execute_sql' ? String(args.sql ?? '') : ''
         const normalizedSql = normalizeSql(sql)
-        const action = queryStepAction(sql, executedQueries.keys(), queryCount + pendingTasks.length)
+        const action = queryStepAction(sql, executedQueries.keys())
         if (action === 'reuse') {
           const cached = executedQueries.get(normalizedSql)!
           lastSql = cached.sql
@@ -596,11 +585,6 @@ export async function runAgent(options: {
           toolResponses.set(toolCall.id, '相同 SQL 已在本轮执行，无需重复查询。请使用本轮另一条工具结果。')
           continue
         }
-        if (action === 'finalize' || pendingTasks.length >= remainingBudget) {
-          toolResponses.set(toolCall.id, '当前查询已覆盖最短路径，本次不再执行额外 SQL。请使用已有结果完成回答。')
-          forceFinal = action === 'finalize'
-          continue
-        }
         scheduledSql.add(normalizedSql)
         pendingTasks.push({
           toolCall,
@@ -610,7 +594,6 @@ export async function runAgent(options: {
         })
       }
 
-      queryCount += pendingTasks.length
       const taskResults = await executeSqlTasks(pendingTasks, async (task) => ({
         task,
         result: await session.callTool(task.toolCall.function.name, task.args),
@@ -666,7 +649,7 @@ export async function runAgent(options: {
       }
 
       if (queryFailureCount && !lastTable) {
-        if (queryFailureCount > 1 || queryCount >= MAX_AGENT_SQL_QUERIES) {
+        if (queryFailureCount > 1) {
           throw new Error(`SQL 连续执行失败，已停止重试：${lastQueryError}`)
         }
         messages.push({

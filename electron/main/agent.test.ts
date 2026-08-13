@@ -14,7 +14,6 @@ import {
   executeSqlTasks,
   formatAgentError,
   MAX_AGENT_MODEL_ROUNDS,
-  MAX_AGENT_SQL_QUERIES,
   overallAggregateNeedsCorrection,
   parseFinal,
   parseFunnelRecommendations,
@@ -40,12 +39,12 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('给出可展示的查询方向')
     expect(SYSTEM_PROMPT).toContain('自动从结构缓存识别事件表')
     expect(SYSTEM_PROMPT).toContain('不能把各事件独立计数冒充漏斗')
-    expect(SYSTEM_PROMPT).toContain('整个任务最多调用两次 execute_sql')
+    expect(SYSTEM_PROMPT).toContain('SQL 总数不设固定上限')
     expect(SYSTEM_PROMPT).toContain('结果足以回答时立即输出最终 JSON')
     expect(SYSTEM_PROMPT).toContain('常规查询必须先根据高相关 Schema 确定大致查询方向')
     expect(SYSTEM_PROMPT).toContain('选定主表或视图、必要关联')
     expect(SYSTEM_PROMPT).toContain('并行查询明显更快时')
-    expect(SYSTEM_PROMPT).toContain('两条必须都是互不依赖的只读 SQL')
+    expect(SYSTEM_PROMPT).toContain('这些 SQL 必须互不依赖且只读')
   })
 })
 
@@ -56,7 +55,8 @@ describe('schema-first query planning', () => {
     expect(guidance).toContain('主表或视图、必要关联')
     expect(guidance).toContain('指标字段、筛选字段、分组维度和时间字段')
     expect(guidance).toContain('JOIN、CTE 或条件聚合一次拿到目标字段')
-    expect(guidance).toContain('两个结果互不依赖且并行更快')
+    expect(guidance).toContain('多个结果互不依赖且并行更快')
+    expect(guidance).toContain('数量按实际需要决定')
   })
 
   it('keeps funnel planning focused on event schema', () => {
@@ -72,6 +72,7 @@ describe('SQL task scheduling', () => {
     const execution = executeSqlTasks([
       { sql: 'SELECT total FROM orders' },
       { sql: 'SELECT total FROM refunds' },
+      { sql: 'SELECT total FROM credits' },
     ], async (task) => {
       started.push(task.sql)
       if (task.sql.includes('orders')) await firstBlocked
@@ -79,11 +80,12 @@ describe('SQL task scheduling', () => {
     })
 
     await Promise.resolve()
-    expect(started).toEqual(['SELECT total FROM orders', 'SELECT total FROM refunds'])
+    expect(started).toEqual(['SELECT total FROM orders', 'SELECT total FROM refunds', 'SELECT total FROM credits'])
     releaseFirst?.()
     await expect(execution).resolves.toEqual([
       { status: 'fulfilled', value: 'SELECT total FROM orders' },
       { status: 'fulfilled', value: 'SELECT total FROM refunds' },
+      { status: 'fulfilled', value: 'SELECT total FROM credits' },
     ])
   })
 
@@ -113,21 +115,19 @@ describe('SQL task scheduling', () => {
 
 describe('query budget', () => {
   it('keeps the common path to one query and one answer round', () => {
-    expect(shouldForceFinalAnswer(1, 0)).toBe(false)
-    expect(shouldForceFinalAnswer(2, 1)).toBe(false)
+    expect(shouldForceFinalAnswer(1)).toBe(false)
+    expect(shouldForceFinalAnswer(2)).toBe(false)
   })
 
-  it('forces an answer after two queries or at the final model round', () => {
-    expect(MAX_AGENT_SQL_QUERIES).toBe(2)
+  it('forces an answer only at the final model round', () => {
     expect(MAX_AGENT_MODEL_ROUNDS).toBe(4)
-    expect(shouldForceFinalAnswer(3, MAX_AGENT_SQL_QUERIES)).toBe(true)
-    expect(shouldForceFinalAnswer(MAX_AGENT_MODEL_ROUNDS, 0)).toBe(true)
+    expect(shouldForceFinalAnswer(3)).toBe(false)
+    expect(shouldForceFinalAnswer(MAX_AGENT_MODEL_ROUNDS)).toBe(true)
   })
 
-  it('reuses duplicate SQL and blocks queries beyond the budget', () => {
-    expect(queryStepAction(' SELECT 1; ', ['SELECT 1'], 1)).toBe('reuse')
-    expect(queryStepAction('SELECT 2', ['SELECT 1'], MAX_AGENT_SQL_QUERIES)).toBe('finalize')
-    expect(queryStepAction('SELECT 2', ['SELECT 1'], 1)).toBe('execute')
+  it('reuses duplicate SQL without limiting new SQL count', () => {
+    expect(queryStepAction(' SELECT 1; ', ['SELECT 1'])).toBe('reuse')
+    expect(queryStepAction('SELECT 3', ['SELECT 1', 'SELECT 2'])).toBe('execute')
   })
 })
 
