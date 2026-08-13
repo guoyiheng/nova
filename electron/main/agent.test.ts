@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createServer } from 'node:http'
 import {
   buildIntentGuidance,
+  buildQueryPlanningGuidance,
   createModelClient,
   createProgressReporter,
   describeConnection,
@@ -35,11 +36,26 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('必须通过现有字段或关联表同时返回名称或标题')
     expect(SYSTEM_PROMPT).toContain('按对象聚合时也要返回对象名称，不要只按 ID 分组')
     expect(SYSTEM_PROMPT).toContain('除非用户明确询问 ID，否则不要把内部 ID 当作主要结论')
-    expect(SYSTEM_PROMPT).toContain('给出可展示的步骤说明')
+    expect(SYSTEM_PROMPT).toContain('给出可展示的查询方向')
     expect(SYSTEM_PROMPT).toContain('自动从结构缓存识别事件表')
     expect(SYSTEM_PROMPT).toContain('不能把各事件独立计数冒充漏斗')
     expect(SYSTEM_PROMPT).toContain('整个任务最多调用两次 execute_sql')
     expect(SYSTEM_PROMPT).toContain('结果足以回答时立即输出最终 JSON')
+    expect(SYSTEM_PROMPT).toContain('常规查询必须先根据高相关 Schema 确定大致查询方向')
+    expect(SYSTEM_PROMPT).toContain('选定主表或视图、必要关联')
+  })
+})
+
+describe('schema-first query planning', () => {
+  it('requires common queries to identify the query direction before SQL', () => {
+    const guidance = buildQueryPlanningGuidance('统计最近 30 天各地区订单金额')
+    expect(guidance).toContain('先阅读按相关性排序的 Schema 详情')
+    expect(guidance).toContain('主表或视图、必要关联')
+    expect(guidance).toContain('指标字段、筛选字段、分组维度和时间字段')
+  })
+
+  it('keeps funnel planning focused on event schema', () => {
+    expect(buildQueryPlanningGuidance('分析注册到支付漏斗')).toContain('事件数据、用户标识、事件名称和时间字段')
   })
 })
 
@@ -122,7 +138,7 @@ describe('progress details', () => {
       } }],
       queryResult: null,
     })
-    expect(plan).toContain('步骤说明：查询项目名称、状态及负责人')
+    expect(plan).toContain('查询方向：查询项目名称、状态及负责人')
     expect(plan).toContain('查询计划：')
     expect(plan).toContain('SELECT name, status, owner FROM projects')
 

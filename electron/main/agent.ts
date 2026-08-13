@@ -9,7 +9,7 @@ import { buildSchemaContext } from './schema-context.js'
 export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHub 查询当前数据库，并用中文给出准确、简洁的结论。
 
 规则：
-1. 数据库结构上下文包含按当前问题筛选的表、视图和字段详情，以及全局对象目录。必须优先基于这些信息规划 SQL；目录中有候选对象但缺少字段详情时，先用当前数据库适配的元数据查询确认字段，不要猜测对象名称。
+1. 数据库结构上下文包含按当前问题相关性排序的表、视图和字段详情，以及全局对象目录。常规查询必须先根据高相关 Schema 确定大致查询方向：选定主表或视图、必要关联，以及指标、筛选、分组和时间字段，再生成 SQL；不得跳过结构判断直接猜测表名或字段名。目录中有候选对象但缺少字段详情时，才使用当前数据库适配的元数据查询确认字段。
 2. 默认使用查询语句回答分析问题。只有用户明确要求修改数据库时，才执行写入或 DDL；不要自行扩大修改范围。
 3. 查询前先识别用户要求的目标指标、筛选对象、统计范围、分组维度和时间范围。筛选对象不是分组维度，不得添加用户未要求的拆分维度。
 4. “X 的次数 / 数量 / 总数 / 多少”默认表示满足 X 条件的总体统计，最终查询应返回单一总计。只有用户明确使用“各、每个、分别、按、分布、占比、排行、趋势、对比”等表达时才分组。
@@ -19,7 +19,7 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 8. 最终结论使用名称或标题指代业务对象；除非用户明确询问 ID，否则不要把内部 ID 当作主要结论。字段含义不明确时，结合表结构和关联关系确认含义后再回答。
 9. 优先聚合数据，不查询与问题无关的明细或敏感字段。执行修改时应使用范围明确的条件。
 10. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
-11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的步骤说明：说明本轮要查询或验证的对象、指标、筛选条件和必要关联；只描述行动计划和依据，不输出冗长推理。
+11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的查询方向：说明基于 Schema 选定的查询对象、指标字段、筛选条件、分组或时间字段及必要关联；只描述方向和依据，不输出冗长推理。
 查询效率规则：优先使用结构上下文一次生成直接回答问题的最终 SQL，不要先查样例数据、总行数或其他非必要信息。只有缺少关键字段或分类值语义时才允许一次探查；探查后的下一次 SQL 必须是最终查询。整个任务最多调用两次 execute_sql，每轮最多调用一次；结果足以回答时立即输出最终 JSON，不要重复验证。
 漏斗规则：当问题包含“漏斗、转化路径、注册到支付、步骤转化、流失、留存路径”等意图时，自动从结构缓存识别事件表、用户标识、事件名称和时间字段，不要求用户提供表名或字段名；按用户步骤先后顺序计算每一步完成前序步骤的去重用户数，不能把各事件独立计数冒充漏斗。最终结果优先返回两列 stage（步骤名称）和 users（用户数），严格按步骤顺序排列，图表类型设为 funnel，并在结论中指出主要流失点、阶段转化率和可执行建议。对“推荐漏斗”类问题，先基于结构缓存选择最有业务价值的 2 到 8 个业务步骤，再直接完成分析；不要向用户展示内部表名、字段名或 SQL。
 12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
@@ -66,6 +66,13 @@ export function buildIntentGuidance(question: string) {
     return '该问题要求总体次数或总量。把问题中的对象作为筛选条件，最终查询返回一行总计；不要按对象的类型、名称或其他未明确要求的维度分组。若先探索分类值，探索后仍需执行最终总计查询。'
   }
   return '严格按照用户明确提出的维度组织结果；不要自行增加类型、时间或其他分组维度。'
+}
+
+export function buildQueryPlanningGuidance(question: string) {
+  if (/漏斗|转化路径|注册到支付|步骤转化|流失|留存路径/iu.test(question)) {
+    return '先从高相关 Schema 中确定事件数据、用户标识、事件名称和时间字段，再按业务步骤生成漏斗 SQL。'
+  }
+  return '先阅读按相关性排序的 Schema 详情，确定主表或视图、必要关联、指标字段、筛选字段、分组维度和时间字段，再生成直接回答问题的 SQL。首次调用 execute_sql 前，用一至两句话说明这一查询方向。'
 }
 
 export function overallAggregateNeedsCorrection(question: string, sql: string, table: QueryTable | null) {
@@ -145,7 +152,7 @@ export function describeModelProgress(options: {
 
   const summary = content?.trim()
   if (toolCalls.length) {
-    if (summary) lines.push(`步骤说明：${summary}`)
+    if (summary) lines.push(`${stage === 'planning' ? '查询方向' : '步骤说明'}：${summary}`)
     lines.push(stage === 'planning' ? '查询计划：' : '下一步查询：')
     toolCalls.forEach((toolCall, index) => {
       let sql = ''
@@ -441,7 +448,7 @@ export async function runAgent(options: {
     const client = createModelClient(apiKey, baseUrl)
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: `当前数据库类型：${source.type}\n数据库结构缓存：\n${schemaContext}\n\n意图约束：${buildIntentGuidance(question)}\n\n问题：${question}` },
+      { role: 'user', content: `当前数据库类型：${source.type}\n数据库结构缓存（relations 已按问题相关性排序）：\n${schemaContext}\n\n查询规划要求：${buildQueryPlanningGuidance(question)}\n意图约束：${buildIntentGuidance(question)}\n\n问题：${question}` },
     ]
     const executedQueries = new Map<string, { sql: string; text: string; table: QueryTable | null }>()
     let queryCount = 0
@@ -464,11 +471,13 @@ export async function runAgent(options: {
       const stage = step === 0 ? 'planning' : 'answering'
       const modelStep = progress(
         stage,
-        step === 0 ? '生成查询计划' : '分析查询结果',
+        step === 0 ? '根据 Schema 确定查询方向' : '分析查询结果',
         [
           `模型：${model}`,
           `分析轮次：第 ${step + 1} 轮`,
-          step === 0 ? `待回答问题：${question}` : lastTable ? `正在分析上一查询结果\n${describeQueryResult(lastTable)}` : '正在分析数据库返回内容',
+          step === 0
+            ? `正在识别主查询对象、必要关联及指标与筛选字段\n待回答问题：${question}`
+            : lastTable ? `正在分析上一查询结果\n${describeQueryResult(lastTable)}` : '正在分析数据库返回内容',
         ].join('\n'),
       )
       let completion: Awaited<ReturnType<typeof client.chat.completions.create>>
