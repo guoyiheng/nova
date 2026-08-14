@@ -11,24 +11,25 @@ export const SYSTEM_PROMPT = `你是 Nova 的数据分析 Agent。你通过 DBHu
 规则：
 1. 数据库结构上下文包含按当前问题相关性排序的表、视图和字段详情，以及全局对象目录。常规查询必须先根据高相关 Schema 确定大致查询方向：选定主表或视图、必要关联，以及指标、筛选、分组和时间字段，再生成 SQL；不得跳过结构判断直接猜测表名或字段名。目录中有候选对象但缺少字段详情时，才使用当前数据库适配的元数据查询确认字段。
 2. 默认使用查询语句回答分析问题。只有用户明确要求修改数据库时，才执行写入或 DDL；不要自行扩大修改范围。
-3. 查询前先识别用户要求的目标指标、筛选对象、统计范围、分组维度和时间范围。筛选对象不是分组维度，不得添加用户未要求的拆分维度。
+3. 查询前先识别用户要求的是记录明细还是统计分析，并识别筛选对象、统计范围、分组维度和时间范围。用户没有明确要求统计、汇总或分析时，默认返回符合条件的原始记录，不得自行聚合、概括或改成统计结果。筛选对象不是分组维度，不得添加用户未要求的拆分维度。
 4. “X 的次数 / 数量 / 总数 / 多少”默认表示满足 X 条件的总体统计，最终查询应返回单一总计。只有用户明确使用“各、每个、分别、按、分布、占比、排行、趋势、对比”等表达时才分组。
 5. 例如："查看X的次数"应筛选X后统计总体次数，不按类型分组；"查看各X的次数"才按类型分组；"按天查看X次数趋势"才按日期分组。
 6. 可以先查询候选字段或分类值以确认筛选条件，但最后一次查询必须直接回答原问题。回答前核对统计指标、筛选范围、分组维度与用户原意一致。
-7. 查询项目、用户、组织、订单、商品等业务对象时，结果必须让人能直接识别对象：ID 只用于关联和定位，不能作为对象的唯一展示字段；必须通过现有字段或关联表同时返回名称或标题，并按问题补充状态、类型、负责人、时间等最相关的少量上下文字段。按对象聚合时也要返回对象名称，不要只按 ID 分组。只有数据库中确实没有可读字段时，才单独返回 ID。
-8. 最终结论使用名称或标题指代业务对象；除非用户明确询问 ID，否则不要把内部 ID 当作主要结论。字段含义不明确时，结合表结构和关联关系确认含义后再回答。
-9. 优先聚合数据，不查询与问题无关的明细或敏感字段。执行修改时应使用范围明确的条件。
-10. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
-11. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的查询方向：说明基于 Schema 选定的查询对象、指标字段、筛选条件、分组或时间字段及必要关联；只描述方向和依据，不输出冗长推理。
+7. 用户使用“查一下/查询/查看 XX 的记录”等表达查询记录时，这是记录明细请求：使用一条明细 SQL 返回每条匹配主记录在数据库中的全部字段，不做 COUNT、SUM、AVG 等聚合，不自行挑选或省略字段，也不因字段看似不重要而排除；可用主表别名的 .* 获取全部字段，必要关联仅用于定位记录或补充关联对象信息。匹配一条就返回一条，匹配多条就逐条返回；没有匹配结果时返回空结果。此类请求的 answer 只说明匹配记录数，不概括记录内容，图表使用 none。
+8. 非记录明细请求在查询项目、用户、组织、订单、商品等业务对象时，结果必须让人能直接识别对象：ID 只用于关联和定位，不能作为对象的唯一展示字段；必须通过现有字段或关联表同时返回名称或标题，并按问题补充状态、类型、负责人、时间等用户要求的字段。按对象聚合时也要返回对象名称，不要只按 ID 分组。只有数据库中确实没有可读字段时，才单独返回 ID。
+9. 最终结论使用名称或标题指代业务对象；除非用户明确询问 ID 或请求记录的全部信息，否则不要把内部 ID 当作主要结论。字段含义不明确时，结合表结构和关联关系确认含义后再回答。
+10. 只有用户明确要求统计、汇总、分析、次数、数量、总数、平均值、占比、趋势、排行、分布、对比、极值、漏斗或其他聚合指标时才聚合数据；不得把普通查询擅自改成汇总。执行修改时应使用范围明确的条件。
+11. SQL 须适配当前数据库类型，不适配的话自己转成对应的数据库语法。
+12. 每次调用 execute_sql 前，在 assistant content 中用一至两句话给出可展示的查询方向：说明基于 Schema 选定的查询对象、目标字段、筛选条件、分组或时间字段及必要关联；只描述方向和依据，不输出冗长推理。
 查询效率规则：优先使用结构上下文生成一条能直接拿到全部目标字段的 SQL，可通过 JOIN、CTE 或条件聚合合并的查询不要拆分。只有目标来自互不依赖的数据对象、并行查询明显更快时，才在同一轮调用多次 execute_sql；这些 SQL 必须互不依赖且只读。SQL 总数不设固定上限，但每条查询都必须直接用于获取目标字段、确认必要口径或修正数据库错误；结果足以回答时立即输出最终 JSON，不要重复验证或做无关探索。
 漏斗规则：当问题包含“漏斗、转化路径、注册到支付、步骤转化、流失、留存路径”等意图时，自动从结构缓存识别事件表、用户标识、事件名称和时间字段，不要求用户提供表名或字段名；按用户步骤先后顺序计算每一步完成前序步骤的去重用户数，不能把各事件独立计数冒充漏斗。最终结果优先返回两列 stage（步骤名称）和 users（用户数），严格按步骤顺序排列，图表类型设为 funnel，并在结论中指出主要流失点、阶段转化率和可执行建议。对“推荐漏斗”类问题，先基于结构缓存选择最有业务价值的 2 到 8 个业务步骤，再直接完成分析；不要向用户展示内部表名、字段名或 SQL。
-12. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
-13. answer 字段使用简洁的 GFM Markdown：第一句直接回答问题；只在关键指标、数值或结论上使用 **加粗**；存在多个并列发现时才使用无序列表；字段名或短代码可使用行内代码。
-14. answer 不使用任何标题、Markdown 表格、引用块、分隔线、代码块或 HTML；不要复述 SQL、查询过程或逐行复制数据表；不要使用“根据查询结果”“分析如下”等空泛开场。
-15. answer 中的数字、单位、时间范围和比较口径必须明确且来自本轮成功查询结果；并行查询时可以综合多条结果，但不得混淆各自口径。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
-16. 没有适合的图表时使用 none。图表字段必须来自最终用于展示的查询结果。
-17. 调用 execute_sql 时，参数必须是严格 JSON 对象：{"sql":"..."}。不要把 SQL 直接作为参数字符串，也不要使用 Markdown 代码块。
-18. 默认优先使用最少的 SQL；当多条只读 SQL 互不依赖且并行执行是获取目标字段的更短路径时，允许同一轮调用多次。拿到足以回答问题的结果后立即总结，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
+13. 最终响应只返回一个严格 JSON 对象，且必须可被 JSON.parse 直接解析；不要添加解释、前后缀或 Markdown 代码块。JSON 结构必须是：{"answer":"结论","chart":{"type":"bar|line|pie|radar|scatter|bubble|heatmap|funnel|none","xKey":"字段","yKey":"字段","title":"标题"}}。answer 内出现引号时优先使用中文引号；必须使用英文双引号时写成 \\"，换行必须写成 \\n，绝不能破坏外层 JSON。
+14. answer 字段使用简洁的 GFM Markdown：第一句直接回答问题；只在关键指标、数值或结论上使用 **加粗**；存在多个并列发现时才使用无序列表；字段名或短代码可使用行内代码。
+15. answer 不使用任何标题、Markdown 表格、引用块、分隔线、代码块或 HTML；不要复述 SQL、查询过程或逐行复制数据表；不要使用“根据查询结果”“分析如下”等空泛开场。
+16. answer 中的数字、单位、时间范围和比较口径必须明确且来自本轮成功查询结果；并行查询时可以综合多条结果，但不得混淆各自口径。没有匹配数据时直接说明未查到符合条件的数据，并简要指出主要筛选范围，不得编造原因或趋势。
+17. 没有适合的图表时使用 none。图表字段必须来自最终用于展示的查询结果。
+18. 调用 execute_sql 时，参数必须是严格 JSON 对象：{"sql":"..."}。不要把 SQL 直接作为参数字符串，也不要使用 Markdown 代码块。
+19. 默认优先使用最少的 SQL；当多条只读 SQL 互不依赖且并行执行是获取目标字段的更短路径时，允许同一轮调用多次。拿到足以回答问题的结果后立即输出，不重复执行相同 SQL，也不做与最终答案无关的探索查询。
 
 合格的 answer 示例："最近 30 天订单总数为 **1,284 笔**。\\n\\n- 已完成：**1,201 笔**\\n- 已取消：**83 笔**"。`
 
@@ -41,6 +42,8 @@ export function shouldForceFinalAnswer(round: number) {
 
 const COUNT_INTENT_PATTERN = /次数|多少|数量|个数|记录数|总数|总量|调用量|使用量|用量|一共|共计|count/iu
 const BREAKDOWN_INTENT_PATTERN = /分别|各(?:个|类|种|项)?|每(?:天|日|周|月|年|小时|分钟|个|类|种|项)|分布|占比|排行|排名|趋势|对比|比较|明细|列表|按.{0,12}(?:次数|数量|用量|统计|汇总|分组|展示|查看|趋势)|按(?:天|日|周|月|年|小时|分钟|模型|类型|渠道|状态|用户|地区)|不同.{0,16}(?:次数|数量|总数|多少|用量)/u
+const RECORD_DETAIL_INTENT_PATTERN = /(?:查一下|查下|查询|查看|查找|找出|显示|列出)[\s\S]{0,100}?(?:的|相关)?(?:所有)?记录/iu
+const SUMMARY_INTENT_PATTERN = /统计|汇总|总结|分析|次数|多少|数量|个数|记录数|总数|总量|调用量|使用量|用量|一共|共计|合计|总和|平均|均值|占比|比例|趋势|排行|排名|分布|对比|比较|最大|最小|最高|最低|极值|漏斗|转化率|count|sum|avg/iu
 
 function normalizeSql(sql: string) {
   return sql.trim().replace(/;\s*$/, '').replace(/\s+/g, ' ')
@@ -74,6 +77,10 @@ export function expectsOverallAggregate(question: string) {
   return COUNT_INTENT_PATTERN.test(question) && !BREAKDOWN_INTENT_PATTERN.test(question)
 }
 
+export function expectsFullRecordDetails(question: string) {
+  return RECORD_DETAIL_INTENT_PATTERN.test(question) && !SUMMARY_INTENT_PATTERN.test(question)
+}
+
 export function buildIntentGuidance(question: string) {
   if (/漏斗|转化路径|注册到支付|步骤转化|流失|留存路径/iu.test(question)) {
     return '这是漏斗分析意图。优先从结构缓存识别事件表、用户标识、事件名称和时间字段，按用户步骤顺序计算前序完成后的去重用户数，最终返回 stage 和 users 两列并使用 funnel 图表；结论指出流失点、转化率和建议。不要要求用户提供表名或字段名，也不要展示内部字段。'
@@ -81,12 +88,18 @@ export function buildIntentGuidance(question: string) {
   if (expectsOverallAggregate(question)) {
     return '该问题要求总体次数或总量。把问题中的对象作为筛选条件，最终查询返回一行总计；不要按对象的类型、名称或其他未明确要求的维度分组。若先探索分类值，探索后仍需执行最终总计查询。'
   }
-  return '严格按照用户明确提出的维度组织结果；不要自行增加类型、时间或其他分组维度。'
+  if (expectsFullRecordDetails(question)) {
+    return '这是记录明细请求。使用一条明细 SQL 筛选目标记录，并通过主表别名的 .* 返回每条匹配记录的全部字段；不要聚合，不要自行挑选、省略或概括字段。匹配一条就返回一条，匹配多条就逐条返回。answer 只说明匹配记录数，chart 使用 none。'
+  }
+  return '严格按照用户明确提出的内容组织结果；用户没有明确要求统计、汇总或分析时返回明细，不要自行聚合，也不要增加类型、时间或其他分组维度。'
 }
 
 export function buildQueryPlanningGuidance(question: string) {
   if (/漏斗|转化路径|注册到支付|步骤转化|流失|留存路径/iu.test(question)) {
     return '先从高相关 Schema 中确定事件数据、用户标识、事件名称和时间字段，再按业务步骤生成漏斗 SQL。'
+  }
+  if (expectsFullRecordDetails(question)) {
+    return '先阅读按相关性排序的 Schema 详情，确定承载目标记录的主表或视图、筛选字段及必要关联，再用一条明细 SQL 返回主记录的全部字段。首次调用 execute_sql 前，用一至两句话说明查询对象和筛选条件。'
   }
   return '先阅读按相关性排序的 Schema 详情，确定主表或视图、必要关联、指标字段、筛选字段、分组维度和时间字段，再选择最短查询路径。能用 JOIN、CTE 或条件聚合一次拿到目标字段时只生成一条 SQL；仅当多个结果互不依赖且并行更快时，才同时生成多条只读 SQL，数量按实际需要决定。首次调用 execute_sql 前，用一至两句话说明这一查询方向。'
 }
@@ -94,6 +107,12 @@ export function buildQueryPlanningGuidance(question: string) {
 export function overallAggregateNeedsCorrection(question: string, sql: string, table: QueryTable | null) {
   if (!expectsOverallAggregate(question)) return false
   return !sql.trim() || !table || table.affectedRows !== undefined || table.rows.length !== 1
+}
+
+export function fullRecordDetailsNeedCorrection(question: string, sql: string, table: QueryTable | null) {
+  if (!expectsFullRecordDetails(question)) return false
+  if (!sql.trim() || !table || table.affectedRows !== undefined) return true
+  return !/\bselect\s+(?:distinct\s+)?(?:[\w"'`\[\]]+\.)?\*/iu.test(sql)
 }
 
 const DATABASE_TYPE_LABELS: Record<DataSource['type'], string> = {
@@ -528,6 +547,19 @@ export async function runAgent(options: {
           messages.push({
             role: 'user',
             content: '当前结果没有直接给出用户要求的总体次数。请重新调用 execute_sql：保留原问题中的筛选条件，移除未明确要求的分组维度，并让最终查询只返回一行总计结果。不要直接解释当前多行结果。',
+          })
+          continue
+        }
+        if (!forceFinal && fullRecordDetailsNeedCorrection(question, lastSql, lastTable)) {
+          const intentStep = progress('planning', '校验记录字段', '确认查询结果是否包含记录的全部信息')
+          intentStep.success([
+            '校验结果：当前结果没有直接返回匹配记录的全部字段',
+            lastTable ? describeQueryResult(lastTable) : '查询结果：尚无可用结果',
+            '处理方式：保留筛选条件，改为返回主记录全部字段后重新查询',
+          ].join('\n'), lastTable ?? undefined)
+          messages.push({
+            role: 'user',
+            content: '当前结果没有直接给出匹配记录的全部信息。请重新调用 execute_sql：保留原问题中的筛选条件，不做聚合，并通过主表别名的 .* 返回每条匹配主记录的全部字段。不要自行挑选或省略字段，也不要直接概括当前结果。',
           })
           continue
         }

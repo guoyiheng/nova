@@ -10,9 +10,11 @@ import {
   describeProgressError,
   describeQueryResult,
   describeSchema,
+  expectsFullRecordDetails,
   expectsOverallAggregate,
   executeSqlTasks,
   formatAgentError,
+  fullRecordDetailsNeedCorrection,
   MAX_AGENT_MODEL_ROUNDS,
   overallAggregateNeedsCorrection,
   parseFinal,
@@ -35,7 +37,7 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('ID 只用于关联和定位，不能作为对象的唯一展示字段')
     expect(SYSTEM_PROMPT).toContain('必须通过现有字段或关联表同时返回名称或标题')
     expect(SYSTEM_PROMPT).toContain('按对象聚合时也要返回对象名称，不要只按 ID 分组')
-    expect(SYSTEM_PROMPT).toContain('除非用户明确询问 ID，否则不要把内部 ID 当作主要结论')
+    expect(SYSTEM_PROMPT).toContain('除非用户明确询问 ID 或请求记录的全部信息')
     expect(SYSTEM_PROMPT).toContain('给出可展示的查询方向')
     expect(SYSTEM_PROMPT).toContain('自动从结构缓存识别事件表')
     expect(SYSTEM_PROMPT).toContain('不能把各事件独立计数冒充漏斗')
@@ -45,6 +47,9 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('选定主表或视图、必要关联')
     expect(SYSTEM_PROMPT).toContain('并行查询明显更快时')
     expect(SYSTEM_PROMPT).toContain('这些 SQL 必须互不依赖且只读')
+    expect(SYSTEM_PROMPT).toContain('默认返回符合条件的原始记录')
+    expect(SYSTEM_PROMPT).toContain('返回每条匹配主记录在数据库中的全部字段')
+    expect(SYSTEM_PROMPT).toContain('不得把普通查询擅自改成汇总')
   })
 })
 
@@ -61,6 +66,12 @@ describe('schema-first query planning', () => {
 
   it('keeps funnel planning focused on event schema', () => {
     expect(buildQueryPlanningGuidance('分析注册到支付漏斗')).toContain('事件数据、用户标识、事件名称和时间字段')
+  })
+
+  it('plans record lookups around all primary record fields', () => {
+    const guidance = buildQueryPlanningGuidance('查一下 Nova 的记录')
+    expect(guidance).toContain('承载目标记录的主表或视图')
+    expect(guidance).toContain('返回主记录的全部字段')
   })
 })
 
@@ -349,6 +360,32 @@ describe('formatAgentError', () => {
 })
 
 describe('query intent safeguards', () => {
+  it('returns every field for direct record lookup requests', () => {
+    expect(expectsFullRecordDetails('查一下 Nova 的记录')).toBe(true)
+    expect(expectsFullRecordDetails('查询客户张三的所有记录')).toBe(true)
+    expect(expectsFullRecordDetails('查看最近的登录记录')).toBe(true)
+    expect(buildIntentGuidance('查一下 Nova 的记录')).toContain('返回每条匹配记录的全部字段')
+  })
+
+  it('does not treat explicit record summaries as detail requests', () => {
+    expect(expectsFullRecordDetails('查询订单记录数')).toBe(false)
+    expect(expectsFullRecordDetails('汇总客户的交易记录')).toBe(false)
+    expect(expectsFullRecordDetails('分析最近的登录记录趋势')).toBe(false)
+  })
+
+  it('requires record lookup SQL to return all primary record fields', () => {
+    const table = {
+      columns: ['id', 'name', 'status'],
+      rows: [{ id: 1, name: 'Nova', status: 'active' }],
+      truncated: false,
+    }
+
+    expect(fullRecordDetailsNeedCorrection('查一下 Nova 的记录', 'SELECT id, name, status FROM projects', table)).toBe(true)
+    expect(fullRecordDetailsNeedCorrection('查一下 Nova 的记录', 'SELECT projects.* FROM projects', table)).toBe(false)
+    expect(fullRecordDetailsNeedCorrection('查一下 Nova 的记录', 'SELECT p.* FROM projects p', table)).toBe(false)
+    expect(fullRecordDetailsNeedCorrection('统计 Nova 的记录数', 'SELECT COUNT(*) FROM projects', table)).toBe(false)
+  })
+
   it('treats an unqualified count request as one overall aggregate', () => {
     expect(expectsOverallAggregate('查看生图模型的次数')).toBe(true)
     expect(expectsOverallAggregate('最近一周一共有多少次生图调用')).toBe(true)
