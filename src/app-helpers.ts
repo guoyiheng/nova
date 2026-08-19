@@ -198,8 +198,8 @@ export function formatBytes(value?: number) {
 export function initialPage(): Page {
   try {
     const saved = localStorage.getItem('nova_active_page')
-    if (saved === 'funnels') return 'query'
-    if (saved && ['query', 'dashboards', 'tasks', 'history'].includes(saved)) return saved as Page
+    if (saved === 'funnels' || saved === 'dashboards') return 'query'
+    if (saved && ['query', 'tasks', 'history'].includes(saved)) return saved as Page
   } catch {
     // ignore
   }

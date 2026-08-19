@@ -294,7 +294,6 @@ export function App() {
 
         <nav className="primary-nav" aria-label="主导航">
           <NavButton active={page === 'query'} label="查询" icon={Search} onClick={() => setPage('query')} />
-          <NavButton active={page === 'dashboards'} label="看板" icon={LayoutDashboard} onClick={() => setPage('dashboards')} />
           <NavButton active={page === 'tasks'} label="定时" icon={Clock3} onClick={() => setPage('tasks')} />
           <NavButton active={page === 'history'} label="历史" icon={History} onClick={() => setPage('history')} />
         </nav>

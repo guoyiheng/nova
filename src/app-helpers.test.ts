@@ -27,6 +27,15 @@ describe('initialPage', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('redirects the hidden dashboard route to query', () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'dashboards' })
+    try {
+      expect(initialPage()).toBe('query')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 const savedSql: SavedSql[] = [
